@@ -1,5 +1,27 @@
 # Sessions
 
+## 2026-08-06 — "organiza esse repositório padrão da indústria removendo coisas obsoletas" (v0.3.3)
+
+### Contexto
+
+Pedido de organização geral: alinhar o repo ao padrão da indústria e remover o que ficou obsoleto pelas viradas de modelo do produto (janela → `LAPSO.md` raiz → por-sessão → dockado na aba do Claude Code).
+
+### Desafios
+
+- **Auditar antes de mexer.** Workflow multi-agente com 4 lentes (docs obsoletos · sanitização · padrão indústria · código morto) e um verificador adversarial por achado: 39 confirmados, 1 refutado. O refutado prova o valor do desenho: um "achado" afirmava que o release v0.2.2 não tinha `.vsix` — o verificador o derrubou porque o anexo tinha acabado de ser subido nesta mesma sessão.
+- **A verificação achou o que a lente não procurava**: o repo GitHub estava **PRIVADO** — contradizendo o próprio CLAUDE.md ("repo público desde a v0.2.2"). A exposição real era só o Marketplace, e os links "código-fonte/releases" da página da extensão davam 404 pra visitantes.
+- **O CI novo falhou no primeiro run — e o defeito era do teste, não do código.** A dedup de variantes de drive (`d--`/`D--`) decide por `process.platform`; o harness simula paths Windows num runner Linux, então as variantes viravam 2 diretórios e o assert de "não-match custa 1 varredura" quebrava. Em produção Linux o cenário é impossível (path POSIX nunca gera variante). O harness passou a declarar `process.platform = win32`.
+- **Runs de push sumiam sem erro.** PushEvent chegava, workflow ativo, YAML correto, minutos disponíveis — e nenhum run nascia. Não era config: era o "Incident with Actions" oficial do GitHub daquele dia (eventos dropados não são re-enfileirados). Provado com push de teste pós-incidente disparando e passando.
+- **Abrir o repo sem vazar o passado.** A sanitização limpa o tip, mas o histórico antigo retinha os nomes — e tags/releases antigos seguravam esses commits alcançáveis. A abertura exigiu o pacote completo: backup (bundle + 8 `.vsix`), deletar releases/tags, compactar o histórico num root único com a árvore já limpa, force push, recriar o release atual e só então virar PUBLIC. Verificação pelo canal que importa: API/página **anônimas**.
+- **Honestidade sobre o resíduo**: commits antigos ainda respondem por SHA direto até o GC interno do GitHub (e os SHAs constam na events API por ~90 dias). Purga imediata exigiria ticket no GitHub Support — registrado como pendência, risco baixo (nomes, sem credencial).
+
+### Decisões
+
+- **"Abrir limpando o passado"** (Lucas, via pergunta com as 3 opções e trade-offs): histórico compactado > manter privado > abrir com histórico sujo.
+- CHANGELOG passa a entrar no `.vsix` (aba Changelog do Marketplace); demais docs internos continuam fora do pacote.
+- Helpers de teste nunca usados foram **removidos** (não ganharam asserts novos) — o pedido era remover obsoleto, não expandir cobertura.
+- LICENSE segue ausente por preferência do dono — registrada como decisão aberta, não aplicada.
+
 ## 2026-08-06 — "o que regrediu?" (v0.3.2)
 
 ### Contexto

@@ -1,5 +1,7 @@
 # Lapso
 
+[![Testes](https://github.com/lucasftas/lapso/actions/workflows/test.yml/badge.svg)](https://github.com/lucasftas/lapso/actions/workflows/test.yml)
+
 Post-it **por sessão do Claude Code**: um painel dockado que mostra a nota da aba de sessão em destaque. Troca de aba → troca a nota. Temporária e descartável (some quando a aba fecha).
 
 > Nome do repositório no GitHub: `notes-session-vscode` (histórico) → renomeado pra `lapso`. Nome do produto/extensão: **Lapso**.

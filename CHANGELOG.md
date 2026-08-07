@@ -2,6 +2,28 @@
 
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/). Este projeto segue versionamento semântico.
 
+## [0.3.3] — 2026-08-06
+
+Organização do repositório no padrão da indústria (sem mudança de comportamento da extensão) e **abertura do repositório ao público** com histórico compactado.
+
+### Added
+- CI GitHub Actions: `npm test` (90 asserts) roda em push, pull request e disparo manual.
+- Scaffold `.vscode/` (`launch.json` + `tasks.json`) — F5 abre o Extension Development Host como o README descreve.
+- Campos `bugs` e `homepage` no manifest e script `vscode:prepublish` (compila antes de todo empacotamento).
+- Notas de evolução na Spec (espelhando a do PRD) e aviso histórico no mock do storyboard.
+
+### Changed
+- O `CHANGELOG.md` passou a entrar no `.vsix` — a aba Changelog da página do Marketplace passa a existir a partir do próximo upload.
+- Documentação sanitizada: nomes de infra interna, projetos privados e paths de máquina saíram de todos os arquivos versionados (o registro técnico ficou).
+- Exemplos de instalação usam placeholder `lapso-<versão>.vsix` em vez de versão fixa; instruções do modelo pré-v0.3.1 ("ícone na Activity Bar") atualizadas pro acordeon dentro da aba do Claude Code.
+- Histórico do git compactado num único commit raiz na abertura ao público (backup completo pré-compactação preservado fora do repo).
+
+### Removed
+- Código morto: campo `webviewReady` (nunca lido), helpers e exports de teste sem consumidor, entrada morta `LAPSO.md` no `.vscodeignore`, `.vsix` antigos soltos na raiz (todos anexados nos releases do GitHub).
+
+### Fixed
+- Suíte de testes divergia em runner Linux (CI): o harness simula ambiente Windows e agora declara `process.platform = win32` — sem isso a dedup de variantes de drive `d--`/`D--` cobrava duas varreduras e um assert de custo falhava.
+
 ## [0.3.2] — 2026-08-06
 
 ### Fixed

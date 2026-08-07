@@ -1,5 +1,18 @@
 # Operations Log
 
+## 2026-08-06 (organização padrão indústria + repo público, v0.3.3)
+- [x] Auditoria multi-agente do repo (4 lentes + verificação adversarial): 39 achados confirmados, 1 refutado; todos aplicados.
+- [x] Sanitização dos arquivos tracked (nomes de infra/projetos privados/paths de máquina/ID de board fora do conteúdo versionado) + varredura final por termos privados → zero ocorrências.
+- [x] Código morto removido (provider + testes); `npm test` → **90 asserts verdes** local.
+- [x] Padrão indústria: `vscode:prepublish` + `bugs`/`homepage`; CHANGELOG dentro do `.vsix`; `.vscode/launch+tasks`; caixa do `README.md` corrigida; `.vsix` antigos removidos da raiz (o do v0.2.2, que não tinha asset no release, foi anexado antes).
+- [x] CI GitHub Actions criado e **provado verde no Ubuntu** (90 asserts). Runs de push engolidos de manhã eram o "Incident with Actions" oficial do GitHub — pós-incidente, push dispara normal. Fix necessário: harness declara `process.platform = win32`.
+- [x] **Descoberta**: o repo GitHub estava PRIVADO (docs/vault diziam "público desde v0.2.2"). Decisão do Lucas: **"Abrir limpando o passado"**.
+- [x] Backup completo pré-squash (bundle do histórico + os 8 `.vsix` de todos os releases) → pasta `lapso-backup-pre-squash-2026-08-06` fora do repo. Releases/tags antigos deletados, histórico compactado no root `16a5591`, force push, release v0.3.2 recriado com vsix, repo **PUBLIC** — verificado anônimo (página 200, 1 commit, 1 tag, 1 release).
+- [x] filé v0.3.3: bump + `lapso-0.3.3.vsix` (conteúdo conferido, 7 arquivos) + instalada (`lucasftas.lapso@0.3.3`) + release v0.3.3 (vsix anexo) + item do board Monday bumpado + vault atualizado + tema preservado (Gruvbox Dark Medium) + sync de painéis sem itens.
+- [ ] **Resíduo conhecido**: commits antigos ainda respondem por SHA direto na API até o garbage collection interno do GitHub (SHAs visíveis na events API por ~90 dias). Purga imediata total = ticket no GitHub Support. Risco baixo (só nomes, sem credencial).
+- [ ] **Marketplace segue na 0.3.1** — publicação manual pendente (PAT do `vsce` inválido, `TF400813`).
+- [ ] Segue pendente de antes: `icon` PNG no manifest.
+
 ## 2026-08-06 (falso alarme de configuração em repo novo, v0.3.2)
 - [x] Diagnóstico do print do Lucas ("o que regrediu?"): nada regrediu. O workspace do print era uma pasta **vazia criada no mesmo dia**, sem nenhuma sessão do Claude Code — confirmado por `ls` (91 pastas em `projects/`, nenhuma casando) e pelo próprio painel do Claude ("No sessions yet"). O aviso vinha do caminho `!anyDirReadable` de `src/extension.ts`, presente desde a v0.2.2.
 - [x] Fix implementado: `rootReadable` no `ResolveResult`, `projectsRootReadable()` sondando a raiz só no caminho de falha, estado `no-sessions-here` no webview, dedup do log de `config-missing`.
