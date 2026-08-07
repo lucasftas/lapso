@@ -1,5 +1,18 @@
 # Operations Log
 
+## 2026-08-07 (botão "pedir status", v0.4.0)
+- [x] Pesquisa de viabilidade "injetar prompt numa sessão aberta": código da extensão Claude Code 2.1.221 instalada (manifest + bundle) + docs oficiais via agente. Deep link `/open?session&prompt` achado e descartado (painel aberto descarta o prompt); rota escolhida: flag + hook `PostToolUse`.
+- [x] Mock storyboard com 5 variantes × 3 estados (`mocks/lapso-botao-status-storyboard.html`), aberto no Waterfox → **A4 (barra de rodapé) aprovada** pelo Lucas.
+- [x] Implementação: rodapé no `buildHtml` + command `requestStatus` no host (guard de sessão exibida) + flag `.lapso/<sessionId>.request` + limpeza no fechamento da aba + ciclo visual (aguardando/atualizado/timeout 90 s).
+- [x] Hook global: `lapso-status-request.ps1` (UTF-8 com BOM, `OutputEncoding` UTF-8) + registro no `settings.json` (`PostToolUse` sem matcher + `Stop` com anti-loop). Testado isolado nos 3 cenários (payloads reais; JSON do output validado por bytes).
+- [x] **Prova viva E2E na própria sessão**: flag gravado → instrução injetada na tool call seguinte → nota escrita → painel renderizou. Debug no caminho: stdout puro de `PostToolUse` é engolido — trocado pro formato `hookSpecificOutput.additionalContext` (o mesmo do acento-guard).
+- [x] `npm test` → **104 asserts verdes** (14 novos, bloco G). CI verde no push.
+- [x] `vsce package` → `lapso-0.4.0.vsix` (7 arquivos, conteúdo conferido, CHANGELOG 0.4.0 dentro) → instalada (`lucasftas.lapso@0.4.0`). Nenhuma janela recarregada à força — o botão aparece no reload natural de cada uma.
+- [x] filé v0.4.0: release com vsix anexo, item do board Monday bumpado, vault atualizado, tema preservado (Gruvbox Dark Medium), sync de painéis sem itens.
+- [ ] Validação final do clique real pelo Lucas (pós-reload da janela).
+- [ ] **Marketplace segue na 0.3.1** — publicação manual pendente (PAT do `vsce` inválido, `TF400813`).
+- [ ] Segue pendente de antes: `icon` PNG no manifest.
+
 ## 2026-08-06 (organização padrão indústria + repo público, v0.3.3)
 - [x] Auditoria multi-agente do repo (4 lentes + verificação adversarial): 39 achados confirmados, 1 refutado; todos aplicados.
 - [x] Sanitização dos arquivos tracked (nomes de infra/projetos privados/paths de máquina/ID de board fora do conteúdo versionado) + varredura final por termos privados → zero ocorrências.

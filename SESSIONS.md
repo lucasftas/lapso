@@ -1,5 +1,27 @@
 # Sessions
 
+## 2026-08-07 — "um botão que injeta um prompt na sessão aberta — ou isso é inviável?" (v0.4.0)
+
+### Contexto
+
+A pergunta nasceu como pesquisa ("vamos discutir sem implementar"): dá pra um botão no Lapso mandar a sessão do Claude Code preencher a nota? O refinamento do fluxo mudou tudo: o alvo é a sessão **ocupada** — parada, o Lucas pede direto no chat.
+
+### Desafios
+
+- **A rota "óbvia" existe e não serve.** O bundle da extensão Claude Code tem deep link `vscode://anthropic.claude-code/open?session=<id>&prompt=<texto>` que vira um comando chamável por outra extensão. Mas o `createPanel` descarta o prompt quando o painel da sessão já está aberto ("Your prompt was not applied — enter it manually") — exatamente o cenário do botão. E no caminho bom só preenche o input; enviar é sempre gesto do usuário.
+- **A rota certa já estava provada em produção sem ninguém perceber**: hooks `PostToolUse` injetam instrução no meio de turno em execução — o acento-guard do setup do mantenedor faz isso todo dia. Sessão ocupada dispara tool calls o tempo todo; é o melhor cenário possível pro hook, não o pior.
+- **O flag era consumido e nada chegava.** Primeira versão do hook imprimia a instrução em stdout puro: o arquivo sumia (hook rodou) e a sessão não recebia nada. Em `PostToolUse`, contexto só chega ao modelo como JSON `hookSpecificOutput.additionalContext` — descoberto comparando com o acento-guard, que já usava o formato. Stdout puro é aceito e engolido em silêncio: o pior tipo de contrato.
+- **Encoding em camadas**: o teste isolado do hook mostrou mojibake — três suspeitos (arquivo, console, harness). O arquivo estava certo (provado por bytes, não pelo terminal); o culpado era o PowerShell 5.1 herdando a codepage do console. `[Console]::OutputEncoding = UTF8` no script resolveu, provado lendo os bytes do stdout.
+- **A prova viva definitiva foi na própria sessão que implementava**: flag gravado à mão → a tool call seguinte veio com "PEDIDO DO LAPSO" injetado → a nota foi escrita seguindo o procedimento do gatilho → o painel renderizou. De quebra, provou que o Claude Code relê os hooks do `settings.json` em sessão viva (o hook tinha sido adicionado no meio da sessão).
+- **Payload de teste mentiroso**: o primeiro teste isolado "falhou" com parse error — era o meu JSON de teste com `\U` sem escapar (bash), não o script. O payload real do Claude Code chega escapado. Testar a ferramenta com input inválido e culpar a ferramenta é armadilha clássica.
+
+### Decisões
+
+- **Flag + hook** sobre headless efêmero: o status "de dentro" (a sessão sabe o que está fazendo e por quê) é mais fiel que um segundo Claude lendo o transcript de fora — e custa zero token extra.
+- **A4 (barra de rodapé)** escolhida pelo Lucas no storyboard de 5 variantes × 3 estados.
+- **Sessão ociosa fora do escopo por design** (definição do próprio fluxo dele): sem tool call não há hook; o `Stop` cobre turno terminando, e sessão parada é caso de pedir no chat. Fallback headless fica como possível v2.
+- Timeout visual de 90 s com aviso honesto ("sessão parada? peça no chat") em vez de esperar pra sempre.
+
 ## 2026-08-06 — "organiza esse repositório padrão da indústria removendo coisas obsoletas" (v0.3.3)
 
 ### Contexto
