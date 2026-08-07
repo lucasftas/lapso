@@ -1,0 +1,38 @@
+{
+  "folders": [
+    {
+      "path": "."
+    }
+  ],
+  "settings": {
+    "workbench.colorTheme": "Gruvbox Dark Medium",
+    "workbench.colorCustomizations": {
+      "editor.background": "#211c03",
+      "editor.foreground": "#ebe9e0",
+      "sideBar.background": "#2e2705",
+      "sideBar.foreground": "#bab6a1",
+      "sideBarSectionHeader.background": "#3a3208",
+      "statusBar.noFolderBackground": "#3a3208",
+      "panel.background": "#211c03",
+      "panelTitle.activeForeground": "#ebe9e0",
+      "terminal.background": "#211c03",
+      "terminal.foreground": "#ebe9e0",
+      "editorGroupHeader.tabsBackground": "#2e2705",
+      "editorGroupHeader.noTabsBackground": "#211c03",
+      "tab.inactiveBackground": "#2e2705",
+      "tab.activeForeground": "#ebe9e0",
+      "tab.border": "#63571d",
+      "tab.activeBorderTop": "#eecd2b",
+      "badge.background": "#eecd2b",
+      "badge.foreground": "#000000",
+      "focusBorder": "#eecd2b",
+      "list.activeSelectionBackground": "#4a400d",
+      "list.hoverBackground": "#3a3208"
+    }
+  },
+  "extensions": {
+    "recommendations": [
+      "jdinhlife.gruvbox"
+    ]
+  }
+}

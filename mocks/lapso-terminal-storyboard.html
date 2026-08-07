@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Lapso — repaginação terminal/código</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #16171e;
+    color: #e8e8ef;
+    font-family: -apple-system, "Segoe UI", sans-serif;
+    padding: 28px 20px 60px;
+    line-height: 1.5;
+  }
+  h1 { font-size: 20px; font-weight: 700; margin-bottom: 4px; }
+  .sub { color: #9aa0b3; font-size: 13px; margin-bottom: 4px; }
+  .hint {
+    color: #f1fa8c; font-size: 12px; margin-bottom: 24px;
+    background: rgba(241,250,140,0.08); border-left: 3px solid #f1fa8c;
+    padding: 6px 10px; border-radius: 4px; display: inline-block;
+  }
+  .section-title {
+    font-size: 13px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.08em; margin: 30px 0 14px; color: #bd93f9;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .section-title.light-t { color: #644ac9; }
+  .section-title .pill {
+    font-size: 10px; padding: 2px 8px; border-radius: 10px;
+    background: rgba(189,147,249,0.15); color: #bd93f9; letter-spacing: 0.04em;
+  }
+  .grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+    gap: 20px;
+  }
+  .cell { }
+  .cell-label {
+    font-size: 12px; color: #9aa0b3; margin-bottom: 8px; font-weight: 600;
+  }
+  .cell-label b { color: #e8e8ef; }
+  .cell-label .style { color: #8be9fd; font-family: monospace; }
+
+  /* ---- painel (a "janela" do Lapso) ---- */
+  .panel {
+    border-radius: 10px; overflow: hidden;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.35), 0 0 0 1px rgba(255,255,255,0.04);
+    height: 380px; display: flex; flex-direction: column;
+    font-family: "Cascadia Code", "Fira Code", "JetBrains Mono", Consolas, monospace;
+    font-size: 12.5px; line-height: 1.6;
+  }
+  .chrome {
+    display: flex; align-items: center; gap: 7px;
+    padding: 8px 12px; flex: 0 0 auto;
+    font-family: -apple-system, "Segoe UI", sans-serif; font-size: 11px;
+    letter-spacing: 0.04em;
+  }
+  .dot { width: 11px; height: 11px; border-radius: 50%; }
+  .chrome .title { margin-left: 6px; opacity: 0.7; }
+  .body {
+    flex: 1 1 auto; overflow-y: auto; padding: 12px 14px;
+    white-space: pre-wrap; word-break: break-word;
+  }
+  .body::-webkit-scrollbar { width: 8px; }
+  .body::-webkit-scrollbar-thumb { background: rgba(128,128,128,0.35); border-radius: 4px; }
+
+  /* ============ TEMA ESCURO — Dracula Soft ============ */
+  .dark .panel { background: #282a36; color: #f8f8f2; }
+  .dark .chrome { background: #21222c; border-bottom: 1px solid #191a21; color: #f8f8f2; }
+  .dark .cmt { color: #6272a4; }        /* comentário / divisória */
+  .dark .kw  { color: #ff79c6; }        /* keyword: #region, /* */
+  .dark .lbl { color: #bd93f9; font-weight: 600; } /* STATUS / NOTAS */
+  .dark .prompt { color: #50fa7b; }     /* ❯ */
+  .dark .cmd { color: #8be9fd; }        /* comando */
+  .dark .goal { color: #f8f8f2; }
+  .dark .now  { color: #f8f8f2; }
+  .dark .state{ color: #ffb86c; }       /* estado */
+  .dark .time { color: #6272a4; }
+  .dark .note { color: #f1fa8c; }       /* notas do usuário */
+  .dark .muted{ color: #6272a4; }
+
+  /* ============ TEMA CLARO — Alucard ============ */
+  .light .panel { background: #faf9f5; color: #282a36; }
+  .light .chrome { background: #efeee7; border-bottom: 1px solid #e0dfd6; color: #282a36; }
+  .light .cmt { color: #9a9585; }
+  .light .kw  { color: #a3144d; }
+  .light .lbl { color: #644ac9; font-weight: 700; }
+  .light .prompt { color: #14710a; }
+  .light .cmd { color: #036a96; }
+  .light .goal { color: #282a36; }
+  .light .now  { color: #282a36; }
+  .light .state{ color: #a34d14; }
+  .light .time { color: #9a9585; }
+  .light .note { color: #7a6a12; }
+  .light .muted{ color: #9a9585; }
+</style>
+</head>
+<body>
+  <h1>Lapso — repaginação estilo terminal / painel de código</h1>
+  <div class="sub">Tema <b>Dracula Soft</b> (escuro) + <b>Alucard</b> (claro). Cada mock varia só o <b>estilo da divisória</b> status ↔ notas (sintaxe de código). Conteúdo é o mesmo nos 10 pra você comparar.</div>
+  <div class="hint">Aprove dizendo o número — ex: <b>A3</b> (escuro) ou <b>B4</b> (claro). Pode misturar: "escuro A5 + claro B2".</div>
+  <div class="hint">⚠️ Storyboard histórico de aprovação (2026-07-30; variante A2 aprovada e implementada). O chrome real hoje mostra <b>.lapso</b> + título dinâmico da sessão — o arquivo <b>LAPSO.md</b> dos mocks abaixo não existe mais desde a v0.2.0.</div>
+
+  <!-- ===================== ESCURO ===================== -->
+  <div class="section-title">🌙 Modo escuro — Dracula Soft <span class="pill">A1 – A5</span></div>
+  <div class="grid dark">
+
+    <!-- A1 -->
+    <div class="cell">
+      <div class="cell-label"><b>A1</b> — comentário de linha <span class="style">// ── ──</span></div>
+      <div class="panel">
+        <div class="chrome"><span class="dot" style="background:#ff5555"></span><span class="dot" style="background:#f1fa8c"></span><span class="dot" style="background:#50fa7b"></span><span class="title">LAPSO.md</span></div>
+        <div class="body"><span class="cmt">// ─── STATUS ──────────────</span>
+<span class="goal">🎯 Lapso com cara de terminal</span>
+<span class="now">🔄 Revisando os 5 estilos</span>
+<span class="state">📍 aguardando você</span>
+<span class="time">🕒 01:32</span>
+
+<span class="cmt">// ─── NOTAS ───────────────</span>
+<span class="note">curti o estilo #region</span>
+<span class="note">ver largura no painel real</span></div>
+      </div>
+    </div>
+
+    <!-- A2 -->
+    <div class="cell">
+      <div class="cell-label"><b>A2</b> — bloco inline <span class="style">/* */</span></div>
+      <div class="panel">
+        <div class="chrome"><span class="dot" style="background:#ff5555"></span><span class="dot" style="background:#f1fa8c"></span><span class="dot" style="background:#50fa7b"></span><span class="title">LAPSO.md</span></div>
+        <div class="body"><span class="cmt">/* status */</span>
+<span class="goal">🎯 Lapso com cara de terminal</span>
+<span class="now">🔄 Revisando os 5 estilos</span>
+<span class="state">📍 aguardando você</span>
+<span class="time">🕒 01:32</span>
+
+<span class="cmt">/* notas */</span>
+<span class="note">curti o estilo #region</span>
+<span class="note">ver largura no painel real</span></div>
+      </div>
+    </div>
+
+    <!-- A3 -->
+    <div class="cell">
+      <div class="cell-label"><b>A3</b> — banner box <span class="style">/*═══*/</span></div>
+      <div class="panel">
+        <div class="chrome"><span class="dot" style="background:#ff5555"></span><span class="dot" style="background:#f1fa8c"></span><span class="dot" style="background:#50fa7b"></span><span class="title">LAPSO.md</span></div>
+        <div class="body"><span class="cmt">/*═══════════════════════*/
+/*  <span class="lbl">◆ STATUS</span>            */
+/*═══════════════════════*/</span>
+<span class="goal">🎯 Lapso com cara de terminal</span>
+<span class="now">🔄 Revisando os 5 estilos</span>
+<span class="state">📍 aguardando você</span>
+<span class="time">🕒 01:32</span>
+
+<span class="cmt">/*═══════════════════════*/
+/*  <span class="lbl">✎ NOTAS</span>             */
+/*═══════════════════════*/</span>
+<span class="note">curti o estilo #region</span>
+<span class="note">ver largura no painel real</span></div>
+      </div>
+    </div>
+
+    <!-- A4 -->
+    <div class="cell">
+      <div class="cell-label"><b>A4</b> — região dobrável <span class="style">#region</span></div>
+      <div class="panel">
+        <div class="chrome"><span class="dot" style="background:#ff5555"></span><span class="dot" style="background:#f1fa8c"></span><span class="dot" style="background:#50fa7b"></span><span class="title">LAPSO.md</span></div>
+        <div class="body"><span class="kw">#region</span> <span class="lbl">🎯 STATUS</span>
+  <span class="goal">🎯 Lapso com cara de terminal</span>
+  <span class="now">🔄 Revisando os 5 estilos</span>
+  <span class="state">📍 aguardando você</span>
+  <span class="time">🕒 01:32</span>
+<span class="kw">#endregion</span>
+
+<span class="kw">#region</span> <span class="lbl">✎ NOTAS</span>
+  <span class="note">curti o estilo #region</span>
+  <span class="note">ver largura no painel real</span>
+<span class="kw">#endregion</span></div>
+      </div>
+    </div>
+
+    <!-- A5 -->
+    <div class="cell">
+      <div class="cell-label"><b>A5</b> — prompt de terminal <span class="style">❯ lapso</span></div>
+      <div class="panel">
+        <div class="chrome"><span class="dot" style="background:#ff5555"></span><span class="dot" style="background:#f1fa8c"></span><span class="dot" style="background:#50fa7b"></span><span class="title">LAPSO — bash</span></div>
+        <div class="body"><span class="prompt">❯</span> <span class="cmd">lapso status</span>
+<span class="goal">🎯 Lapso com cara de terminal</span>
+<span class="now">🔄 Revisando os 5 estilos</span>
+<span class="state">📍 aguardando você</span>
+<span class="time">🕒 01:32</span>
+
+<span class="prompt">❯</span> <span class="cmd">lapso notes</span>
+<span class="note">curti o estilo #region</span>
+<span class="note">ver largura no painel real</span>
+<span class="prompt">❯</span> <span class="muted">▊</span></div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ===================== CLARO ===================== -->
+  <div class="section-title light-t">☀️ Modo claro — Alucard <span class="pill" style="background:rgba(100,74,201,0.14);color:#644ac9">B1 – B5</span></div>
+  <div class="grid light">
+
+    <!-- B1 -->
+    <div class="cell">
+      <div class="cell-label"><b>B1</b> — comentário de linha <span class="style" style="color:#036a96">// ── ──</span></div>
+      <div class="panel">
+        <div class="chrome"><span class="dot" style="background:#cb3a2a"></span><span class="dot" style="background:#a37f14"></span><span class="dot" style="background:#14710a"></span><span class="title">LAPSO.md</span></div>
+        <div class="body"><span class="cmt">// ─── STATUS ──────────────</span>
+<span class="goal">🎯 Lapso com cara de terminal</span>
+<span class="now">🔄 Revisando os 5 estilos</span>
+<span class="state">📍 aguardando você</span>
+<span class="time">🕒 01:32</span>
+
+<span class="cmt">// ─── NOTAS ───────────────</span>
+<span class="note">curti o estilo #region</span>
+<span class="note">ver largura no painel real</span></div>
+      </div>
+    </div>
+
+    <!-- B2 -->
+    <div class="cell">
+      <div class="cell-label"><b>B2</b> — bloco inline <span class="style" style="color:#036a96">/* */</span></div>
+      <div class="panel">
+        <div class="chrome"><span class="dot" style="background:#cb3a2a"></span><span class="dot" style="background:#a37f14"></span><span class="dot" style="background:#14710a"></span><span class="title">LAPSO.md</span></div>
+        <div class="body"><span class="cmt">/* status */</span>
+<span class="goal">🎯 Lapso com cara de terminal</span>
+<span class="now">🔄 Revisando os 5 estilos</span>
+<span class="state">📍 aguardando você</span>
+<span class="time">🕒 01:32</span>
+
+<span class="cmt">/* notas */</span>
+<span class="note">curti o estilo #region</span>
+<span class="note">ver largura no painel real</span></div>
+      </div>
+    </div>
+
+    <!-- B3 -->
+    <div class="cell">
+      <div class="cell-label"><b>B3</b> — banner box <span class="style" style="color:#036a96">/*═══*/</span></div>
+      <div class="panel">
+        <div class="chrome"><span class="dot" style="background:#cb3a2a"></span><span class="dot" style="background:#a37f14"></span><span class="dot" style="background:#14710a"></span><span class="title">LAPSO.md</span></div>
+        <div class="body"><span class="cmt">/*═══════════════════════*/
+/*  <span class="lbl">◆ STATUS</span>            */
+/*═══════════════════════*/</span>
+<span class="goal">🎯 Lapso com cara de terminal</span>
+<span class="now">🔄 Revisando os 5 estilos</span>
+<span class="state">📍 aguardando você</span>
+<span class="time">🕒 01:32</span>
+
+<span class="cmt">/*═══════════════════════*/
+/*  <span class="lbl">✎ NOTAS</span>             */
+/*═══════════════════════*/</span>
+<span class="note">curti o estilo #region</span>
+<span class="note">ver largura no painel real</span></div>
+      </div>
+    </div>
+
+    <!-- B4 -->
+    <div class="cell">
+      <div class="cell-label"><b>B4</b> — região dobrável <span class="style" style="color:#036a96">#region</span></div>
+      <div class="panel">
+        <div class="chrome"><span class="dot" style="background:#cb3a2a"></span><span class="dot" style="background:#a37f14"></span><span class="dot" style="background:#14710a"></span><span class="title">LAPSO.md</span></div>
+        <div class="body"><span class="kw">#region</span> <span class="lbl">🎯 STATUS</span>
+  <span class="goal">🎯 Lapso com cara de terminal</span>
+  <span class="now">🔄 Revisando os 5 estilos</span>
+  <span class="state">📍 aguardando você</span>
+  <span class="time">🕒 01:32</span>
+<span class="kw">#endregion</span>
+
+<span class="kw">#region</span> <span class="lbl">✎ NOTAS</span>
+  <span class="note">curti o estilo #region</span>
+  <span class="note">ver largura no painel real</span>
+<span class="kw">#endregion</span></div>
+      </div>
+    </div>
+
+    <!-- B5 -->
+    <div class="cell">
+      <div class="cell-label"><b>B5</b> — prompt de terminal <span class="style" style="color:#036a96">❯ lapso</span></div>
+      <div class="panel">
+        <div class="chrome"><span class="dot" style="background:#cb3a2a"></span><span class="dot" style="background:#a37f14"></span><span class="dot" style="background:#14710a"></span><span class="title">LAPSO — bash</span></div>
+        <div class="body"><span class="prompt">❯</span> <span class="cmd">lapso status</span>
+<span class="goal">🎯 Lapso com cara de terminal</span>
+<span class="now">🔄 Revisando os 5 estilos</span>
+<span class="state">📍 aguardando você</span>
+<span class="time">🕒 01:32</span>
+
+<span class="prompt">❯</span> <span class="cmd">lapso notes</span>
+<span class="note">curti o estilo #region</span>
+<span class="note">ver largura no painel real</span>
+<span class="prompt">❯</span> <span class="muted">▊</span></div>
+      </div>
+    </div>
+
+  </div>
+</body>
+</html>

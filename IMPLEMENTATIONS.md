@@ -1,0 +1,88 @@
+# Implementations
+
+## v0.3.2 — 2026-08-06 (repo novo deixa de ser acusado de erro de configuração)
+
+- **O defeito era de diagnóstico, não de resolução.** A pasta `<CLAUDE_CONFIG_DIR>/projects/<cwd-encodado>` **só nasce quando a primeira sessão do Claude Code grava o `.jsonl`** daquele projeto. Até lá, `readdir` da subpasta falha com `ENOENT` — exatamente como falharia se `CLAUDE_CONFIG_DIR` não estivesse visível pro processo do VSCode. Como só a subpasta era testada, os dois casos caíam no mesmo `config-missing`: pop-up de alerta + painel dizendo que a configuração podia estar errada, num ambiente perfeitamente configurado. Comportamento presente desde a v0.2.2.
+- **Dois sinais em vez de um.** `ResolveResult` ganhou `rootReadable` ao lado de `anyDirReadable`: o primeiro responde "a raiz `projects/` existe?", o segundo "a pasta DESTE projeto existe?". Raiz presente + subpasta ausente = projeto ainda sem sessão (estado normal e transitório); raiz ausente = configuração realmente invisível.
+- **A raiz é sondada só no caminho de falha.** `projectsRootReadable()` roda apenas quando nenhum candidato do workspace foi legível — no caminho feliz o custo continua **zero**, e no de falha é 1 `readdir` por passo do backoff. Sondar sempre teria pago um `readdir` extra em todo clique de aba pra informação que quase nunca muda.
+- **Novo estado de painel `no-sessions-here`**: título `(sem sessão neste projeto)`, status no placeholder cinza (sem texto de erro), campo de notas com "Nenhuma sessão do Claude Code neste projeto ainda." e **sem pop-up** — a ausência é esperada. O log vai pro Output uma vez por painel, não a cada retry. O retry com backoff continua rodando, então o painel se conserta sozinho no instante em que a sessão nasce.
+- **Bônus achado no E2E**: o diagnóstico de `config-missing` era reescrito no Output a cada passo do backoff — 12 linhas idênticas para um único problema. Agora é deduplicado por conteúdo, e o assert cobre a contagem.
+- **O harness não conseguia representar o cenário.** O FS em memória guardava diretórios num `Set` plano: `hasDir("<cfg>/projects")` era falso mesmo com `<cfg>/projects/<proj>` existindo, então "raiz presente, subpasta ausente" era irrepresentável. `hasDir` passou a reconhecer ancestrais, como num FS real.
+- **Provas em três camadas** (nenhuma delas inferência): 90 asserts em `npm test`, incluindo o render do painel pelo sandbox que executa o `<script>` real do webview; um driver contra o **disco de verdade** (`out/extension.js` real, `fs` real, `CLAUDE_CONFIG_DIR` real) mostrando `no-sessions-here` sem pop-up no cenário bom e `config-missing` com pop-up no cenário ruim; e **VSCode ao vivo** — janela nova numa pasta vazia, painel dockado no Claude Code exibindo o estado calmo, sem toast.
+
+## v0.3.1 — 2026-08-05 (Lapso dockado dentro da aba do Claude Code)
+
+- **View contribuída ao container da extensão Claude Code.** A `lapsoView` deixou de ter container próprio na Activity Bar (`lapsoContainer`) e passou a ser declarada em `contributes.views["claude-sessions-sidebar"]` — o container da aba esquerda do Claude Code (lista de sessões). Resultado: o Lapso vira o acordeon **"Lapso — Nota da sessão"** embaixo da lista, no mesmo padrão dos acordeons do Explorador (Folders/Timeline/Outline). O ícone quadradinho próprio do Lapso some da Activity Bar por design.
+- **Zero mudança de código.** `registerWebviewViewProvider("lapsoView")` não referencia container — só o id da view, que não mudou. O `retainContextWhenHidden: true` já existente cobre o colapso do acordeon sem perder estado. O diff inteiro é manifest: remove `viewsContainers`, move a view de chave, adiciona `icon` + `contextualTitle` (identidade preservada se o usuário arrastar a view pra fora).
+- **Mapa dos containers da extensão Claude Code (2.1.221/222)**, levantado do `package.json` instalado: `claude-sessions-sidebar` (lista de sessões, Activity Bar esquerda, `when: claude-vscode.sessionsListEnabled`) · `claude-sidebar-secondary` (chat, secondary sidebar direita) · `claude-sidebar` (legado, primary, só quando a secondary não é suportada). O dock mira a lista de sessões — é a aba do print do Lucas.
+- **Testado isolado antes de tocar a máquina real**: VM Windows limpa (Hyper-V, host interno) com VSCode limpo + Claude Code do marketplace + vsix patcheado. Validação visual do acordeon (screenshot + console da VM via RDP no host). Auto-update de extensões desligado na VM pra o teste não ser sobrescrito.
+- **Risco conhecido e aceito**: se a Anthropic renomear o id `claude-sessions-sidebar`, a view fica órfã (painel some) até um repatch de 1 linha. Sem fallback declarativo possível — uma view só pode ser declarada num container.
+
+## v0.3.0 — 2026-08-04 (resiliência e persistência do painel)
+
+- **Diagnóstico antes de código.** A queixa era "lento, não atualiza em tempo real, fica travado sem exibir o que estava escrito antes". A primeira medição derrubou a hipótese óbvia: neste repo (2 transcripts / 1,5 MB) a varredura custa **5 ms** — não explica 1 s de percepção. O gargalo era **estado e ciclo de vida**, não I/O. (Em repo grande o I/O explica: 116 arquivos / 428 MB = 2,3 s por clique de aba.)
+- **Chave de render composta.** O guard `if (message.status !== currentStatus)` no webview era o defeito nº 1: `currentStatus` só era escrito dentro de `typewriterStatus`, então as três branches que limpam a tela (`unresolved`, `no-workspace`, `config-missing`) deixavam a variável apontando pro status antigo. Voltar pra mesma sessão batia "igual" e o painel ficava preso no placeholder. Chave passou a ser `sessionId ⊕ status`, e o estado neutro (`showIdle`) zera tudo — inclusive o valor e o placeholder do campo de notas, que também vazavam entre sessões.
+- **Sessão pegajosa + retry.** `resolve()` falha por motivos transitórios e frequentes: sessão nova leva ~1 min pra ganhar `ai-title` no `.jsonl` (medido no transcript real desta sessão: 13:23:24Z → 13:24:29Z) e o rename do título dessincroniza label×transcript sem o usuário trocar de aba. Antes, qualquer falha zerava `currentSessionId` e limpava o painel, **sem nada que reavaliasse depois**. Agora a associação aba→sessão sobrevive à falha, há backoff (1s→60s) e `fs.watch` best-effort na pasta de transcripts.
+- **Watcher da pasta, não do arquivo.** `rearmNoteWatcher()` tinha **um único call site**, dentro de `if (sessionId !== currentSessionId)`; o `onDidDispose` derrubava o watcher **sem** zerar `currentSessionId`, então o próximo `resolveWebviewView` achava que já estava na sessão certa e não re-armava nada — painel vivo e mudo. Trocado por `ensureNoteWatcher()` idempotente sobre `.lapso/*.md` (cobre create/change/delete e a troca de sessão sem re-armar), mais um **poll de 3 s** como rede de segurança e token de view pra que um dispose atrasado não mate a view nova.
+- **Integridade do arquivo.** `parseZones` agora detecta marcador aberto sem fechar (leitura no meio de um `truncate+write`) e devolve `partial` — antes o fallback despejava o markdown cru dentro do campo de notas e um save nessa janela **apagava a zona de status no disco**. `buildFile` preserva prólogo/epílogo. `saveNotes` virou compare-and-set serializado por sessão, e o `lastNotes` só é marcado depois da escrita confirmar.
+- **Concorrência.** Coalescing de 50 ms + execução serializada + token de geração matam as 2-3 resoluções concorrentes por troca de aba; `lastAnyDirReadable` deixou de ser campo compartilhado (virou retorno), o que eliminava um `config-missing` falso-positivo quando dois resolves se cruzavam.
+- **Leitura por janela + índice persistido.** `titleOf` lia o `.jsonl` inteiro (`Buffer` → `string` → `split`) pra extrair **2 linhas** — no maior transcript do parque, 76,8 MB materializados 3× de forma síncrona na thread do extension host. Agora: arquivo pequeno é lido inteiro (exato e barato); grande lê cabeça (512 KB, onde nasce o `ai-title`) + cauda (256 KB, onde caem renomeação e `custom-title`); sessão viva relê só o **delta** desde o último tamanho conhecido. Somados cache negativo por título, dedup do diretório e o índice persistido em `workspaceState`: **2347 ms → 389 ms → 5 ms após reload → 0 ms em uso**.
+- **Provas.** `tests/harness.js` dirige o `out/extension.js` real com `vscode` **e** `node:fs` mockados sobre um FS em memória com contadores de I/O; `tests/webview-sandbox.js` extrai o `<script>` gerado por `buildHtml()` e o executa num DOM mínimo — sem isso não haveria como provar os defeitos do lado do painel. 80 asserts no total (9 de regressão da v0.2.2 + 71 novos). **Dois defeitos foram descobertos pelos próprios testes durante a implementação**: falha de escrita derrubava o provider por rejeição não tratada, e o retry re-postava "sessão não identificada" a cada passo do backoff (repintando o painel à toa) — agora mensagem idêntica à última não é reenviada.
+- **Fora de escopo por decisão do Lucas**: a animação de digitação do status (roda em toda troca de aba, `MS_PER_CHAR=4`, teto de 1500 ms) foi **mantida byte a byte**. Só mudou *quando* ela é disparada (a chave de dedup) e o auto-scroll do `#status`.
+
+## v0.2.3 — 2026-08-04 (descrição do Marketplace alinhada ao produto)
+
+- **`description` do manifest reescrita.** A vitrine do Marketplace lê **só** esse campo — e ele ficou congelado no v0.1.0 enquanto o produto mudou duas vezes de modelo (janela → `LAPSO.md` raiz → por-sessão). Cada erro tinha rastro no próprio repo: "flutuante" contradiz a decisão de arquitetura registrada em `SESSIONS.md` (WebviewView escolhido, overlay Win32 descartado); "por janela/sessão do VSCode" contradiz o `resolve()` do `SessionTitleIndex`; `.lapso/nota.md` foi etapa intermediária já anotada como superada em `IMPLEMENTATIONS.md`.
+- **Verificação da publicação pela API, não pela página.** `marketplace.visualstudio.com/items` já exibia o texto novo enquanto `extensionquery` (a API que o próprio VSCode consome) ainda devolvia `0.2.2` + descrição velha — o pacote estava em `Verifying`. Só o retorno da API vale como prova de "no ar". Levou ~1min30.
+- **Upload sem PAT.** O PAT guardado pelo `vsce` está inválido (`TF400813: user 'aaaaaaaa-…' is not authorized`); publicado pelo portal manage no browser logado, mesmo caminho do v0.2.2.
+- **Docs internos alinhados**: `CLAUDE.md` (descrevia `LAPSO.md` na raiz) e nota de evolução no `PRD.md`.
+
+## v0.2.2 — 2026-08-02 (publicada no marketplace)
+
+- **Publicada no Visual Studio Marketplace** como `lucasftas.lapso` — resolve o "sincronizar pela minha conta" (Settings Sync replica extensão do marketplace, não VSIX local). Publisher `lucasftas` criado via portal manage (sem PAT); manifest ajustado (`repository` add, `private` removido). ⚠️ O E2E ao vivo de 2 sessões (gate original) não rodou nesta sessão — publicada com base no mock 9/9.
+
+### Fixes de concorrência (implementados em 2026-08-01, entraram no v0.2.2)
+
+Correção dos 6 bugs críticos de perda de dados achados na auditoria adversarial do v0.2.1. Testado no código real via mock (9/9); release gated no E2E de 2 sessões.
+
+- **Associação estável aba→sessionId** (`WeakMap<vscode.Tab,string>`): fixada em `syncActiveTab` quando uma aba de sessão do Claude resolve. `onTabsClosed` deleta pela associação, **nunca** re-resolvendo por texto — mata o cluster de deleção-da-sessão-errada (colisão de título + desempate por mtime que escolhia a sessão viva). Aba comum com título colidente deixou de apagar nota de sessão viva.
+- **Save com sessionId capturado**: `scheduleSaveNotes(sessionId, text)` + `saveNotes(sessionId, text)` guardam o alvo no momento da digitação; `flushPendingSave()` despeja o save pendente na troca de sessão. Fim do "texto de A gravado em B.md" ao trocar de aba no meio do debounce. `lastNotes` só é atualizado quando o save é da sessão exibida.
+- **Diagnóstico de transcript-dir**: `SessionTitleIndex` expõe `lastTriedDirs`/`lastAnyDirReadable`; `reportNoConfigDir()` loga no Output Channel "Lapso" + `showWarningMessage` (1×) + posta `config-missing` (painel mostra causa provável = `CLAUDE_CONFIG_DIR` não visível), distinto do genérico "sessão não identificada".
+- **Teste de integração** (`tests/concurrency.test.js`): mock mínimo do `vscode` (FS em memória + tabGroups + webview) dirige o provider **compilado** pelos 3 cenários. `npm test` roda compile + teste.
+- **Higiene**: `onDidDispose` reseta `disposables`/`pendingSave`/`view`.
+
+## v0.2.1 — 2026-08-01
+
+Sessão de diagnóstico + release consolidando a virada por-sessão. O gatilho foi um teste no post-it que **não preencheu**.
+
+- **Root cause do "não preencheu"** (investigação empírica, não inferência): escrevi a nota de teste em `.lapso/<sessionId>.md` (modelo novo) mas o painel mostrava placeholder do modelo **antigo** (`LAPSO.md` raiz). Cadeia confirmada: chip do painel = "LAPSO.md" (webview do build velho) × instalada on-disk = modelo novo (chip `.lapso`) × versão **não re-bumpou** (0.2.0 marcada em `b3f3db8`, antes dos commits por-sessão) → VSIX novo reinstalado por cima da mesma versão → **VSCode não recarrega extensão em memória** sem `Reload Window` → host velho continuou no ar.
+- **Resolução de transcript-dir auditada e OK pro setup do Lucas**: `claudeProjectsDir()` honra `CLAUDE_CONFIG_DIR` (não hardcoda `~/.claude`); `encodeCwd` (`[:\\/._]`→`-`) e variantes maiúscula/minúscula do drive resolvem o diretório do projeto (ex: `c--projects--my-repo`) corretamente.
+- **Bump 0.2.1**: além de fechar o release, força o VSCode a reconhecer a atualização (mata o "mesma versão, host velho").
+- **README saneado**: a seção "Convenção pro Claude Code" ainda ensinava `LAPSO.md` na raiz (modelo morto) — reescrita pro `.lapso/<sessionId>.md`. Adicionada nota sobre reinstall-sem-reload.
+- **Caça adversarial de failure modes** via workflow multi-agente (5 lentes paralelas: resolução, watchers, webview, ciclo-de-vida, transcript-dir + verificação adversarial de cada achado) — resultados no SESSIONS.md.
+
+## v0.2.0 — 2026-07-30
+
+Repaginação visual (terminal/código) + distribuição, testado ao vivo no painel real.
+
+- **Storyboard de 10 mocks** (`mocks/lapso-terminal-storyboard.html`): 5 escuro (Dracula Soft) + 5 claro (Alucard), variando o estilo de divisória (`//`, `/* */`, banner box, `#region`, prompt terminal). Aberto no Waterfox pra aprovação.
+- **Tema A2 escolhido implementado**: painel virou mini-terminal — `#chrome` com 3 dots + `LAPSO.md`, `#282a36`, monospace, `.cmt` (`/* status */`/`/* notas */`) em `#6272a4`, notas em `#f1fa8c`. Lógica de zonas (`parseZones`/`saveNotes`/typewriter/guarda de foco) intacta — só mudou CSS/HTML do `buildHtml`.
+- **Validação ao vivo**: screenshot real do painel confirmou o tema idêntico ao mock e sem quebra na largura estreita (~317px).
+- **Distribuição**: `.vsix` limpo (via `.vscodeignore` corrigido — exclui `mocks/`, docs, workspace) anexado ao release com `gh release upload`. README com fluxo de instalação em PC novo.
+- **Regra global** (no CLAUDE.md do Lucas, fora do repo): gatilho "anota no lapso" corrigido — autoriza criar `LAPSO.md` na raiz, trava a ambiguidade com logs de plano, formato leigo. Corrige incidente onde uma sessão escreveu num log em vez do `LAPSO.md`.
+
+## v0.1.0 — 2026-07-29
+
+MVP da extensão Lapso, construído de forma incremental e testado ao vivo (screenshot real do desktop + teste de lógica), não por inferência.
+
+- **Spike de viabilidade**: provado que dá pra ter painel dockado que acompanha a janela e troca por sessão sem hack de SO — via `WebviewView` nativo (cada janela do VSCode = instância isolada da extensão, troca de sessão é grátis por design). Descartada a abordagem de janela flutuante Win32 externa (frágil, processo externo).
+- **Scaffold** (`package.json`, `tsconfig.json`, `resources/icon.svg`, `src/extension.ts`): `tsc` puro, zero dependência de runtime além da API do VSCode.
+- **Provider + webview** (`LapsoViewProvider`): registro via `registerWebviewViewProvider`, comunicação `postMessage`/`onDidReceiveMessage`.
+- **Convenção de arquivo**: evoluiu `.postit/nota.md` → `.lapso/nota.md` → **`LAPSO.md`** na raiz (versionável, ao lado de README).
+- **Rebrand** para Lapso: ids internos, container, comando, repo GitHub renomeado.
+- **Edição direta no painel** (pivot): painel em branco sem arquivo; `<textarea>` editável; digitar cria/atualiza o arquivo (debounce). Removido o preview read-only de markdown (`renderMarkdownish`/`escapeHtml` = código morto eliminado).
+- **Efeito de máquina de escrever**: revelação por tempo decorrido (`performance.now()`) + fallback `setTimeout`. Bug corrigido: `requestAnimationFrame` fica suspenso em página sem foco genuíno — o fallback garante a revelação completa.
+- **Duas zonas (status/notas) sem sobrescrever**: `parseZones`/`buildFile`/`extractBetween`. Fronteira por marcador HTML (não detecção de autoria — impossível em texto plano). Cada zona salva relendo a outra do disco. Painel dividido: status read-only em cima, notas editáveis embaixo.
+- **Scrollbar estilizada** (`::-webkit-scrollbar` oliva translúcido) + `overflow:hidden` no body pra conter o scroll no campo.
+- **Hardening**: CSP explícito, nonce por render; `textContent`/`<textarea>` em vez de `innerHTML`.
+- **Verificação**: painel/dock/live-update/typewriter/scrollbar por screenshot real; lógica de não-sobrescrever por teste `node` (10/10). Pendente: confirmação visual do layout dividido (tela travou na sessão do release).

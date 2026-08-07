@@ -1,0 +1,17 @@
+.vscode/**
+.gitignore
+src/**
+tsconfig.json
+**/*.map
+docs/**
+mocks/**
+tests/**
+.lapso/**
+*.vsix
+*.code-workspace
+.github/**
+IMPLEMENTATIONS.md
+OPERATIONS.md
+SESSIONS.md
+CLAUDE.md
+.claude/**

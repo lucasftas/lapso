@@ -1,0 +1,63 @@
+{
+  "name": "lapso",
+  "displayName": "Lapso",
+  "description": "Post-it dockado por sessão do Claude Code: segue a aba em destaque e mostra a nota daquela sessão — status escrito pelo Claude + suas anotações, em .lapso/<sessionId>.md",
+  "version": "0.3.2",
+  "keywords": [
+    "claude code",
+    "post-it",
+    "notas",
+    "sessão",
+    "notes",
+    "sticky note"
+  ],
+  "publisher": "lucasftas",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lucasftas/lapso.git"
+  },
+  "bugs": {
+    "url": "https://github.com/lucasftas/lapso/issues"
+  },
+  "homepage": "https://github.com/lucasftas/lapso#readme",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "views": {
+      "claude-sessions-sidebar": [
+        {
+          "id": "lapsoView",
+          "name": "Lapso — Nota da sessão",
+          "type": "webview",
+          "icon": "resources/icon.svg",
+          "contextualTitle": "Lapso"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "lapso.openNote",
+        "title": "Lapso: Editar nota da sessão"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "test": "npm run compile && node tests/concurrency.test.js && node tests/resilience.test.js"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.90.0",
+    "typescript": "^5.4.0"
+  }
+}

@@ -1,0 +1,11 @@
+node_modules/
+out/
+*.vsix
+.vscode-test/
+.lapso/
+# Artefatos do Playwright MCP (snapshots/logs de sessão) — podem conter dados
+# de contas logadas. Nunca versionar: este repo pode virar público.
+.playwright-mcp/
+
+# Estado local do Claude Code (locks/agendamentos de sessão) — nunca versionar
+.claude/
