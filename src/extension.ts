@@ -610,6 +610,38 @@ class LapsoViewProvider implements vscode.WebviewViewProvider {
     return vscode.Uri.joinPath(dir, `${sessionId}.md`);
   }
 
+  private requestUriFor(sessionId: string): vscode.Uri | undefined {
+    const dir = this.lapsoDirUri();
+    if (!dir) {
+      return undefined;
+    }
+    return vscode.Uri.joinPath(dir, `${sessionId}.request`);
+  }
+
+  // Pedido de status (botão do rodapé): grava um arquivo-flag que um hook do Claude
+  // Code (PostToolUse/Stop) consome — a sessão dona do sessionId atualiza a própria
+  // nota ao vê-lo. O watcher do painel observa só *.md, então o .request não re-renderiza.
+  private async writeStatusRequest(sessionId: string): Promise<void> {
+    const dir = this.lapsoDirUri();
+    const uri = this.requestUriFor(sessionId);
+    if (!dir || !uri) {
+      return;
+    }
+    await this.enqueue(sessionId, async () => {
+      if (this.deletedSessions.has(sessionId)) {
+        return;
+      }
+      try {
+        await vscode.workspace.fs.createDirectory(dir);
+        await vscode.workspace.fs.writeFile(uri, Buffer.from(new Date().toISOString() + "\n", "utf8"));
+      } catch (e) {
+        this.output.appendLine(
+          `[lapso] falha ao gravar pedido de status: ${String((e as Error)?.message ?? e)}`
+        );
+      }
+    });
+  }
+
   private async readNote(uri: vscode.Uri): Promise<ReadResult> {
     let stat: vscode.FileStat;
     try {
@@ -1171,12 +1203,21 @@ class LapsoViewProvider implements vscode.WebviewViewProvider {
       }
       this.deletedSessions.add(sessionId);
       const uri = this.noteUriFor(sessionId);
+      const reqUri = this.requestUriFor(sessionId);
       if (uri) {
         await this.enqueue(sessionId, async () => {
           try {
             await vscode.workspace.fs.delete(uri);
           } catch {
             /* já não existe */
+          }
+          // O pedido de status pendente morre junto com a sessão — flag órfão nunca fica.
+          if (reqUri) {
+            try {
+              await vscode.workspace.fs.delete(reqUri);
+            } catch {
+              /* já não existe */
+            }
           }
         });
       }
@@ -1215,6 +1256,12 @@ class LapsoViewProvider implements vscode.WebviewViewProvider {
         }
         if (message.text !== this.lastNotes) {
           this.scheduleSaveNotes(origin, message.text);
+        }
+      } else if (message?.command === "requestStatus" && typeof message.sessionId === "string") {
+        // Mesmo guard do save: só aceita pedido da sessão exibida (um clique atrasado
+        // depois da troca de aba não pode pedir status em nome de outra sessão).
+        if (message.sessionId === this.currentSessionId && !this.deletedSessions.has(message.sessionId)) {
+          void this.writeStatusRequest(message.sessionId);
         }
       }
     });
@@ -1355,6 +1402,13 @@ class LapsoViewProvider implements vscode.WebviewViewProvider {
   #status::-webkit-scrollbar-track, #notes::-webkit-scrollbar-track { background: transparent; }
   #status::-webkit-scrollbar-thumb, #notes::-webkit-scrollbar-thumb { background: #44475a; border-radius: 4px; border: 2px solid transparent; background-clip: content-box; }
   #status::-webkit-scrollbar-thumb:hover, #notes::-webkit-scrollbar-thumb:hover { background: #565971; background-clip: content-box; }
+  #req-footer { flex: 0 0 auto; text-align: center; padding: 5px 0 6px; cursor: pointer; user-select: none;
+                font-size: 11px; color: #6272a4; background: #21222c; border-top: 1px solid #191a21; }
+  #req-footer:hover { color: #bd93f9; background: #23242f; }
+  #req-footer.hidden { display: none; }
+  #req-footer.waiting { color: #f1fa8c; cursor: default; animation: req-pulse 1.2s ease-in-out infinite; }
+  #req-footer.done { color: #50fa7b; cursor: default; }
+  @keyframes req-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 </style>
 </head>
 <body>
@@ -1369,6 +1423,7 @@ class LapsoViewProvider implements vscode.WebviewViewProvider {
     <div class="cmt sp">/* notas */</div>
     <textarea id="notes" disabled placeholder="// suas anotações"></textarea>
   </div>
+  <div id="req-footer" class="hidden">⟳ pedir status à sessão</div>
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
     const statusEl = document.getElementById('status');
@@ -1379,6 +1434,42 @@ class LapsoViewProvider implements vscode.WebviewViewProvider {
 
     document.getElementById('edit-btn').addEventListener('click', () => {
       vscode.postMessage({ command: 'edit' });
+    });
+
+    // Botão "pedir status" (rodapé): grava um pedido em .lapso/<sessionId>.request via
+    // host; um hook do Claude Code (PostToolUse/Stop) consome o arquivo e a PRÓPRIA
+    // sessão atualiza a nota no meio do turno. O botão só pede e dá feedback — quem
+    // responde é a sessão (o painel atualiza pelo watcher normal quando ela escrever).
+    const reqEl = document.getElementById('req-footer');
+    const REQ_IDLE = '⟳ pedir status à sessão';
+    const REQ_WAITING = '⏳ pedido enviado — aguardando a sessão…';
+    const REQ_DONE = '✓ status atualizado agora';
+    const REQ_TIMEOUT_TEXT = '⚠ sem resposta — sessão parada? peça no chat';
+    const REQ_TIMEOUT_MS = 90000;
+    const REQ_DONE_MS = 4000;
+    let reqState = 'idle';
+    let reqSession = null;
+    let reqTimer = null;
+    function reqSet(state, text) {
+      reqState = state;
+      reqEl.classList.remove('waiting');
+      reqEl.classList.remove('done');
+      if (state !== 'idle') { reqEl.classList.add(state); }
+      reqEl.textContent = text;
+    }
+    function reqClearTimer() {
+      if (reqTimer) { clearTimeout(reqTimer); reqTimer = null; }
+    }
+    function reqReset() { reqClearTimer(); reqSession = null; reqSet('idle', REQ_IDLE); }
+    reqEl.addEventListener('click', () => {
+      if (reqState === 'waiting' || !renderedSession) { return; }
+      vscode.postMessage({ command: 'requestStatus', sessionId: renderedSession });
+      reqSession = renderedSession;
+      reqClearTimer();
+      reqSet('waiting', REQ_WAITING);
+      reqTimer = setTimeout(() => {
+        if (reqState === 'waiting') { reqSession = null; reqSet('idle', REQ_TIMEOUT_TEXT); }
+      }, REQ_TIMEOUT_MS);
     });
 
     let saveTimer = null;
@@ -1427,6 +1518,8 @@ class LapsoViewProvider implements vscode.WebviewViewProvider {
       renderKey = null;
       renderedSession = null;
       revealToken++;
+      reqReset();
+      reqEl.classList.add('hidden');
       notesEl.disabled = true;
       notesEl.value = '';
       titleEl.textContent = title;
@@ -1498,9 +1591,21 @@ class LapsoViewProvider implements vscode.WebviewViewProvider {
         notesEl.disabled = false;
         notesEl.placeholder = NOTES_PLACEHOLDER;
         titleEl.textContent = message.title || '.lapso';
+        reqEl.classList.remove('hidden');
+        // Trocou de sessão exibida → o feedback visual do pedido anterior não vale mais
+        // (o arquivo-flag continua no disco e o hook consome de qualquer forma).
+        if (sessionChanged && reqState !== 'idle') { reqReset(); }
         const status = message.status || '';
         const key = (message.sessionId || '') + '\\u0000' + status;
-        if (key !== renderKey) { typewriterStatus(status); }
+        if (key !== renderKey) {
+          typewriterStatus(status);
+          if (reqState === 'waiting' && message.sessionId === reqSession) {
+            reqClearTimer();
+            reqSession = null;
+            reqSet('done', REQ_DONE);
+            reqTimer = setTimeout(() => { if (reqState === 'done') { reqReset(); } }, REQ_DONE_MS);
+          }
+        }
         renderKey = key;
         lastStatusText = status;
         // Com o cursor DENTRO do campo, só preserva o que está digitado se continuarmos

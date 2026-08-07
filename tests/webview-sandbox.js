@@ -49,6 +49,7 @@ function createWebviewSandbox(getHtml, sendToHost, initialState) {
     notes: makeEl("notes"),
     title: makeEl("title"),
     "edit-btn": makeEl("edit-btn"),
+    "req-footer": makeEl("req-footer"),
   };
   // Espelha o HTML estático inicial (o painel nasce assim antes de qualquer mensagem).
   els.status.textContent = "// o Claude escreve aqui o que está fazendo";
@@ -56,6 +57,8 @@ function createWebviewSandbox(getHtml, sendToHost, initialState) {
   els.notes.disabled = true;
   els.notes.placeholder = "// suas anotações";
   els.title.textContent = ".lapso";
+  els["req-footer"].textContent = "⟳ pedir status à sessão";
+  els["req-footer"].classList.add("hidden");
 
   let persisted = initialState ?? null;
   const outbound = [];
@@ -132,6 +135,13 @@ function createWebviewSandbox(getHtml, sendToHost, initialState) {
     notesValue: () => els.notes.value,
     notesDisabled: () => els.notes.disabled,
     titleText: () => els.title.textContent,
+    clickRequest() {
+      els["req-footer"].fire("click");
+    },
+    requestText: () => els["req-footer"].textContent,
+    requestHidden: () => els["req-footer"].classList.contains("hidden"),
+    requestWaiting: () => els["req-footer"].classList.contains("waiting"),
+    requestDone: () => els["req-footer"].classList.contains("done"),
   };
   return sandbox;
 }

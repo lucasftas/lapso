@@ -21,6 +21,45 @@ Post-it **por sessão do Claude Code**: um painel dockado que mostra a nota da a
 - Requer `CLAUDE_CONFIG_DIR` (ou `~/.claude`) acessível — é de lá que a extensão lê os transcripts pra casar aba→sessão.
 - **Projeto ainda sem sessão** (a pasta de transcripts dele só nasce com a primeira sessão): o painel mostra `(sem sessão neste projeto)` em cinza, sem alerta — e volta sozinho assim que a sessão começa. O aviso de configuração só aparece quando a raiz de transcripts realmente não existe.
 
+## Botão "pedir status" (a sessão responde no meio do turno)
+
+O rodapé do painel tem a barra **"⟳ pedir status à sessão"**. O caso de uso: a sessão do Claude Code está **ocupada rodando algo longo** e você quer saber onde ela está sem interromper — clica, e a própria sessão atualiza a nota **no meio do turno**, em segundos, sem parar o que estava fazendo.
+
+Como funciona por baixo:
+
+1. O clique grava um arquivo-flag `.lapso/<sessionId>.request` no workspace (a barra vira "⏳ pedido enviado — aguardando a sessão…").
+2. Um **hook do Claude Code** (`PostToolUse`, que dispara a cada ferramenta que a sessão usa) vê o flag do próprio `session_id`, o consome e injeta a instrução de atualizar a nota. Um hook de `Stop` cobre a borda de o turno terminar antes.
+3. A sessão escreve `.lapso/<sessionId>.md` e segue o trabalho; o painel atualiza pelo watcher normal e a barra confirma "✓ status atualizado agora". Sem resposta em 90 s (sessão parada/sem atividade), a barra avisa — sessão ociosa não consome flag: peça direto no chat.
+
+> **O botão exige o hook instalado** — sem ele, o flag fica lá e nada acontece (a extensão sozinha não tem como falar com a sessão). Receita genérica (qualquer linguagem serve; o contrato é: ler o JSON do stdin, testar `<cwd>/.lapso/<session_id>.request`, deletar e responder):
+
+```json
+// settings.json do Claude Code (~/.claude/settings.json), seção "hooks":
+"PostToolUse": [{ "hooks": [{ "type": "command", "command": "node /caminho/lapso-status-hook.js" }] }],
+"Stop":        [{ "hooks": [{ "type": "command", "command": "node /caminho/lapso-status-hook.js" }] }]
+```
+
+```js
+// lapso-status-hook.js — exemplo mínimo cross-platform
+const fs = require("fs"), path = require("path");
+let raw = ""; process.stdin.on("data", (c) => (raw += c)).on("end", () => {
+  let d; try { d = JSON.parse(raw); } catch { return; }
+  if (!d.session_id || !d.cwd) { return; }
+  const flag = path.join(d.cwd, ".lapso", d.session_id + ".request");
+  if (!fs.existsSync(flag)) { return; }
+  fs.unlinkSync(flag);
+  const msg = "PEDIDO DO LAPSO (botão 'pedir status'): atualize AGORA a zona <!-- lapso:status --> de " +
+    ".lapso/" + d.session_id + ".md neste workspace (curto, linguagem leiga, ≤ 6-8 linhas; a zona " +
+    "lapso:notes é do usuário — não toque; pode criar o arquivo se não existir). Depois continue o que estava fazendo.";
+  if (d.hook_event_name === "Stop") {
+    if (d.stop_hook_active) { return; }          // anti-loop: já bloqueou uma vez neste ciclo
+    process.stderr.write(msg); process.exit(2);  // bloqueia o encerramento 1x com a instrução
+  }
+  // PostToolUse: o contexto só chega ao modelo neste formato (stdout puro é ignorado)
+  process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: msg } }));
+});
+```
+
 ## Instalar
 
 ### Do Marketplace (recomendado)
@@ -77,7 +116,7 @@ Depois `F5` no VSCode (ou `code --extensionDevelopmentPath=.` numa pasta de test
 npm test
 ```
 
-90 asserts, sem framework e sem VSCode aberto: o harness dirige o `out/extension.js` **real** com `vscode` e `node:fs` mockados sobre um filesystem em memória, e um sandbox executa o script do webview num DOM mínimo. Cobre troca de aba, fechamento, escrita concorrente, painel descartado e recriado, sessão ainda sem título e diretório de transcripts ausente.
+104 asserts, sem framework e sem VSCode aberto: o harness dirige o `out/extension.js` **real** com `vscode` e `node:fs` mockados sobre um filesystem em memória, e um sandbox executa o script do webview num DOM mínimo. Cobre troca de aba, fechamento, escrita concorrente, painel descartado e recriado, sessão ainda sem título, diretório de transcripts ausente e o ciclo do botão "pedir status".
 
 ## Estrutura
 

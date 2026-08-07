@@ -2,7 +2,7 @@
   "name": "lapso",
   "displayName": "Lapso",
   "description": "Post-it dockado por sessão do Claude Code: segue a aba em destaque e mostra a nota daquela sessão — status escrito pelo Claude + suas anotações, em .lapso/<sessionId>.md",
-  "version": "0.3.3",
+  "version": "0.4.0",
   "keywords": [
     "claude code",
     "post-it",

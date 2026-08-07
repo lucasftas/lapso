@@ -2,6 +2,12 @@
 
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/). Este projeto segue versionamento semântico.
 
+## [0.4.0] — 2026-08-07
+
+### Added
+- **Botão "pedir status"**: barra fina no rodapé do painel ("⟳ pedir status à sessão"). Pro fluxo de sessão **ocupada**: o clique grava `.lapso/<sessionId>.request` e um hook do Claude Code (`PostToolUse` + `Stop`; receita no README) injeta a instrução — a própria sessão atualiza a nota **no meio do turno**, sem parar o que está fazendo. Estados: aguardando (pulsante) → "✓ status atualizado agora"; sem resposta em 90 s, avisa que a sessão está parada (aí é pedir direto no chat). O pedido pendente morre junto com a aba (sem flag órfão), e o host recusa pedido de sessão que não é a exibida.
+- 14 asserts novos (bloco `[G]`): 104 no total.
+
 ## [0.3.3] — 2026-08-06
 
 Organização do repositório no padrão da indústria (sem mudança de comportamento da extensão) e **abertura do repositório ao público** com histórico compactado.

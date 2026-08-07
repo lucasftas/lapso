@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<title>Lapso — botão "pedir status" · storyboard A1–A5</title>
+<style>
+  /* ===== moldura do storyboard ===== */
+  body { margin: 0; padding: 28px 32px 60px; background: #111; color: #eee;
+         font-family: "Segoe UI", system-ui, sans-serif; }
+  h1 { font-size: 20px; margin: 0 0 6px; }
+  .sub { color: #aaa; font-size: 13px; margin-bottom: 2px; }
+  .hint { color: #888; font-size: 12.5px; margin-bottom: 22px; }
+  .hint b { color: #ccc; }
+  .section-title { font-size: 15px; font-weight: 600; margin: 30px 0 4px; color: #ddd; }
+  .section-desc { color: #999; font-size: 12.5px; margin-bottom: 12px; max-width: 900px; }
+  .grid { display: flex; gap: 18px; flex-wrap: wrap; }
+  .cell { }
+  .cell-label { font-size: 12px; color: #bbb; margin-bottom: 6px; }
+  .cell-label b { color: #fff; }
+
+  /* ===== réplica fiel do painel Lapso (Dracula Soft, buildHtml real) ===== */
+  .panel { width: 300px; height: 240px; background: #282a36; border-radius: 8px; overflow: hidden;
+           display: flex; flex-direction: column; box-shadow: 0 8px 28px rgba(0,0,0,.55);
+           font-family: "Cascadia Code", "Fira Code", "JetBrains Mono", Consolas, monospace;
+           font-size: 11.5px; line-height: 1.6; color: #f8f8f2; }
+  .chrome { display: flex; align-items: center; gap: 7px; padding: 8px 12px; flex: 0 0 auto;
+            background: #21222c; border-bottom: 1px solid #191a21; }
+  .dot { width: 11px; height: 11px; border-radius: 50%; flex: 0 0 auto; }
+  .dot.r { background: #ff5555; } .dot.y { background: #f1fa8c; } .dot.g { background: #50fa7b; }
+  .chrome .title { margin-left: 6px; font-size: 10.5px; color: #f8f8f2; opacity: .6;
+                   letter-spacing: .04em; overflow: hidden; text-overflow: ellipsis;
+                   white-space: nowrap; flex: 1 1 auto; min-width: 0; }
+  .editbtn { margin-left: auto; background: none; border: none; cursor: pointer;
+             font-family: inherit; font-size: 10.5px; color: #6272a4; flex: 0 0 auto; }
+  .editbtn:hover { color: #bd93f9; }
+  .content { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column;
+             padding: 10px 13px; overflow: hidden; }
+  .cmt { color: #6272a4; margin: 0 0 3px; flex: 0 0 auto; }
+  .cmt.sp { margin-top: 10px; }
+  .status { white-space: pre-wrap; word-break: break-word; margin: 0; }
+  .notes { color: #f1fa8c; }
+  .notes.ph { color: #6272a4; }
+
+  /* ===== elementos do botão por variante ===== */
+  /* A1 — botão texto no chrome */
+  .reqbtn-chrome { background: none; border: none; cursor: pointer; font-family: inherit;
+                   font-size: 10.5px; color: #6272a4; flex: 0 0 auto; margin-left: 8px; }
+  .reqbtn-chrome:hover { color: #bd93f9; }
+
+  /* A2 — linha de comando fake no fim do status */
+  .reqline { color: #6272a4; cursor: pointer; margin-top: 4px; }
+  .reqline:hover { color: #bd93f9; }
+  .reqline .arrow { color: #bd93f9; }
+
+  /* A3 — [atualizar] na divisória */
+  .divider { display: flex; align-items: baseline; }
+  .divider .cmt { flex: 1 1 auto; margin: 0; }
+  .reqbracket { color: #6272a4; cursor: pointer; font-size: 10.5px; }
+  .reqbracket:hover { color: #bd93f9; }
+
+  /* A4 — barra de rodapé */
+  .reqfooter { flex: 0 0 auto; text-align: center; padding: 5px 0 6px; cursor: pointer;
+               font-size: 10.5px; color: #6272a4; background: #21222c; border-top: 1px solid #191a21; }
+  .reqfooter:hover { color: #bd93f9; background: #23242f; }
+
+  /* A5 — 4º dot */
+  .dot.req { background: transparent; border: 1.5px solid #bd93f9; box-sizing: border-box;
+             cursor: pointer; width: 11px; height: 11px; }
+  .dot.req:hover { background: #bd93f9; box-shadow: 0 0 7px #bd93f9aa; }
+
+  /* estados compartilhados */
+  .waiting { color: #f1fa8c !important; animation: pulse 1.2s ease-in-out infinite; }
+  .dot.req.waiting { background: #f1fa8c; border-color: #f1fa8c; animation: pulse 1.2s ease-in-out infinite; }
+  .done-flash { color: #50fa7b !important; }
+  .dot.req.done-flash { background: #50fa7b; border-color: #50fa7b; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+  .status .fresh { color: #50fa7b; }
+</style>
+</head>
+<body>
+  <h1>Lapso — botão "pedir status" (a sessão preenche o post-it no meio do turno)</h1>
+  <div class="sub">Réplica fiel do painel atual (Dracula Soft). Cada variante muda só <b>onde e como o botão vive</b>. Três estados por variante: <b>normal → aguardando → atualizado</b>.</div>
+  <div class="hint">Aprove dizendo o número — ex: <b>A2</b>. Hover funciona nos botões de todos os painéis do estado "normal".</div>
+
+  <!-- ============ A1 ============ -->
+  <div class="section-title">A1 — botão texto no chrome, ao lado de "editar"</div>
+  <div class="section-desc">Mesmo estilo e lugar do botão que já existe. Zero mudança no corpo do painel; o chrome fica com 2 ações.</div>
+  <div class="grid">
+    <div class="cell"><div class="cell-label"><b>A1</b> · normal</div>
+      <div class="panel">
+        <div class="chrome"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+          <span class="title">organiza repo padrão indústria</span>
+          <button class="reqbtn-chrome">✦ status</button><button class="editbtn">editar</button></div>
+        <div class="content">
+          <div class="cmt">/* status */</div>
+          <div class="status">🎯 organizar o repo do Lapso
+🔄 rodando a suíte de testes
+📍 aguardando o build
+🕒 21:58</div>
+          <div class="cmt sp">/* notas */</div>
+          <div class="notes ph">// suas anotações</div>
+        </div>
+      </div>
+    </div>
+    <div class="cell"><div class="cell-label"><b>A1</b> · aguardando (pedido enviado)</div>
+      <div class="panel">
+        <div class="chrome"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+          <span class="title">organiza repo padrão indústria</span>
+          <button class="reqbtn-chrome waiting">⏳ pedido…</button><button class="editbtn">editar</button></div>
+        <div class="content">
+          <div class="cmt">/* status */</div>
+          <div class="status">🎯 organizar o repo do Lapso
+🔄 rodando a suíte de testes
+📍 aguardando o build
+🕒 21:58</div>
+          <div class="cmt sp">/* notas */</div>
+          <div class="notes ph">// suas anotações</div>
+        </div>
+      </div>
+    </div>
+    <div class="cell"><div class="cell-label"><b>A1</b> · atualizado (a sessão respondeu)</div>
+      <div class="panel">
+        <div class="chrome"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+          <span class="title">organiza repo padrão indústria</span>
+          <button class="reqbtn-chrome done-flash">✦ status</button><button class="editbtn">editar</button></div>
+        <div class="content">
+          <div class="cmt">/* status */</div>
+          <div class="status"><span class="fresh">🎯 organizar o repo do Lapso
+🔄 empacotando a versão 0.3.3
+📍 falta só o teste final
+🕒 22:04</span></div>
+          <div class="cmt sp">/* notas */</div>
+          <div class="notes ph">// suas anotações</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ A2 ============ -->
+  <div class="section-title">A2 — linha de comando no fim da zona de status</div>
+  <div class="section-desc">O pedido mora onde o resultado aparece: última linha da zona de status, estilo "comando de terminal". Some enquanto aguarda e volta depois.</div>
+  <div class="grid">
+    <div class="cell"><div class="cell-label"><b>A2</b> · normal</div>
+      <div class="panel">
+        <div class="chrome"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+          <span class="title">organiza repo padrão indústria</span><button class="editbtn">editar</button></div>
+        <div class="content">
+          <div class="cmt">/* status */</div>
+          <div class="status">🎯 organizar o repo do Lapso
+🔄 rodando a suíte de testes
+📍 aguardando o build
+🕒 21:58</div>
+          <div class="reqline"><span class="arrow">▸</span> pedir status agora</div>
+          <div class="cmt sp">/* notas */</div>
+          <div class="notes ph">// suas anotações</div>
+        </div>
+      </div>
+    </div>
+    <div class="cell"><div class="cell-label"><b>A2</b> · aguardando</div>
+      <div class="panel">
+        <div class="chrome"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+          <span class="title">organiza repo padrão indústria</span><button class="editbtn">editar</button></div>
+        <div class="content">
+          <div class="cmt">/* status */</div>
+          <div class="status">🎯 organizar o repo do Lapso
+🔄 rodando a suíte de testes
+📍 aguardando o build
+🕒 21:58</div>
+          <div class="reqline waiting"><span class="arrow">⏳</span> pedido enviado — a sessão responde na próxima ação…</div>
+          <div class="cmt sp">/* notas */</div>
+          <div class="notes ph">// suas anotações</div>
+        </div>
+      </div>
+    </div>
+    <div class="cell"><div class="cell-label"><b>A2</b> · atualizado</div>
+      <div class="panel">
+        <div class="chrome"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+          <span class="title">organiza repo padrão indústria</span><button class="editbtn">editar</button></div>
+        <div class="content">
+          <div class="cmt">/* status */</div>
+          <div class="status"><span class="fresh">🎯 organizar o repo do Lapso
+🔄 empacotando a versão 0.3.3
+📍 falta só o teste final
+🕒 22:04</span></div>
+          <div class="reqline"><span class="arrow">▸</span> pedir status agora</div>
+          <div class="cmt sp">/* notas */</div>
+          <div class="notes ph">// suas anotações</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ A3 ============ -->
+  <div class="section-title">A3 — [atualizar] na própria divisória "/* status */"</div>
+  <div class="section-desc">A ação gruda no rótulo da zona: linha do comentário ganha o colchete à direita. Discreto, não adiciona linha nova.</div>
+  <div class="grid">
+    <div class="cell"><div class="cell-label"><b>A3</b> · normal</div>
+      <div class="panel">
+        <div class="chrome"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+          <span class="title">organiza repo padrão indústria</span><button class="editbtn">editar</button></div>
+        <div class="content">
+          <div class="divider"><div class="cmt">/* status */</div><span class="reqbracket">[atualizar]</span></div>
+          <div class="status">🎯 organizar o repo do Lapso
+🔄 rodando a suíte de testes
+📍 aguardando o build
+🕒 21:58</div>
+          <div class="cmt sp">/* notas */</div>
+          <div class="notes ph">// suas anotações</div>
+        </div>
+      </div>
+    </div>
+    <div class="cell"><div class="cell-label"><b>A3</b> · aguardando</div>
+      <div class="panel">
+        <div class="chrome"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+          <span class="title">organiza repo padrão indústria</span><button class="editbtn">editar</button></div>
+        <div class="content">
+          <div class="divider"><div class="cmt">/* status */</div><span class="reqbracket waiting">[⏳ aguardando…]</span></div>
+          <div class="status">🎯 organizar o repo do Lapso
+🔄 rodando a suíte de testes
+📍 aguardando o build
+🕒 21:58</div>
+          <div class="cmt sp">/* notas */</div>
+          <div class="notes ph">// suas anotações</div>
+        </div>
+      </div>
+    </div>
+    <div class="cell"><div class="cell-label"><b>A3</b> · atualizado</div>
+      <div class="panel">
+        <div class="chrome"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+          <span class="title">organiza repo padrão indústria</span><button class="editbtn">editar</button></div>
+        <div class="content">
+          <div class="divider"><div class="cmt">/* status */</div><span class="reqbracket done-flash">[atualizado ✓]</span></div>
+          <div class="status"><span class="fresh">🎯 organizar o repo do Lapso
+🔄 empacotando a versão 0.3.3
+📍 falta só o teste final
+🕒 22:04</span></div>
+          <div class="cmt sp">/* notas */</div>
+          <div class="notes ph">// suas anotações</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ A4 ============ -->
+  <div class="section-title">A4 — barra fina de rodapé, painel inteiro</div>
+  <div class="section-desc">Uma faixa clicável embaixo, estilo barra de status do VSCode. Alvo grande, sempre no mesmo lugar — rouba ~20px de altura do painel.</div>
+  <div class="grid">
+    <div class="cell"><div class="cell-label"><b>A4</b> · normal</div>
+      <div class="panel">
+        <div class="chrome"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+          <span class="title">organiza repo padrão indústria</span><button class="editbtn">editar</button></div>
+        <div class="content">
+          <div class="cmt">/* status */</div>
+          <div class="status">🎯 organizar o repo do Lapso
+🔄 rodando a suíte de testes
+📍 aguardando o build
+🕒 21:58</div>
+          <div class="cmt sp">/* notas */</div>
+          <div class="notes ph">// suas anotações</div>
+        </div>
+        <div class="reqfooter">⟳ pedir status à sessão</div>
+      </div>
+    </div>
+    <div class="cell"><div class="cell-label"><b>A4</b> · aguardando</div>
+      <div class="panel">
+        <div class="chrome"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+          <span class="title">organiza repo padrão indústria</span><button class="editbtn">editar</button></div>
+        <div class="content">
+          <div class="cmt">/* status */</div>
+          <div class="status">🎯 organizar o repo do Lapso
+🔄 rodando a suíte de testes
+📍 aguardando o build
+🕒 21:58</div>
+          <div class="cmt sp">/* notas */</div>
+          <div class="notes ph">// suas anotações</div>
+        </div>
+        <div class="reqfooter waiting">⏳ pedido enviado — aguardando a sessão…</div>
+      </div>
+    </div>
+    <div class="cell"><div class="cell-label"><b>A4</b> · atualizado</div>
+      <div class="panel">
+        <div class="chrome"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+          <span class="title">organiza repo padrão indústria</span><button class="editbtn">editar</button></div>
+        <div class="content">
+          <div class="cmt">/* status */</div>
+          <div class="status"><span class="fresh">🎯 organizar o repo do Lapso
+🔄 empacotando a versão 0.3.3
+📍 falta só o teste final
+🕒 22:04</span></div>
+          <div class="cmt sp">/* notas */</div>
+          <div class="notes ph">// suas anotações</div>
+        </div>
+        <div class="reqfooter done-flash">✓ status atualizado agora</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ A5 ============ -->
+  <div class="section-title">A5 — quarto dot no chrome (roxo, minimalista)</div>
+  <div class="section-desc">Um dot vazado roxo junto dos 3 dots do chrome. Preenche no hover; pulsa amarelo enquanto aguarda; pisca verde ao atualizar. Zero texto — o mais discreto dos cinco.</div>
+  <div class="grid">
+    <div class="cell"><div class="cell-label"><b>A5</b> · normal (hover preenche)</div>
+      <div class="panel">
+        <div class="chrome"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="dot req" title="pedir status à sessão"></span>
+          <span class="title">organiza repo padrão indústria</span><button class="editbtn">editar</button></div>
+        <div class="content">
+          <div class="cmt">/* status */</div>
+          <div class="status">🎯 organizar o repo do Lapso
+🔄 rodando a suíte de testes
+📍 aguardando o build
+🕒 21:58</div>
+          <div class="cmt sp">/* notas */</div>
+          <div class="notes ph">// suas anotações</div>
+        </div>
+      </div>
+    </div>
+    <div class="cell"><div class="cell-label"><b>A5</b> · aguardando</div>
+      <div class="panel">
+        <div class="chrome"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="dot req waiting"></span>
+          <span class="title">organiza repo padrão indústria</span><button class="editbtn">editar</button></div>
+        <div class="content">
+          <div class="cmt">/* status */</div>
+          <div class="status">🎯 organizar o repo do Lapso
+🔄 rodando a suíte de testes
+📍 aguardando o build
+🕒 21:58</div>
+          <div class="cmt sp">/* notas */</div>
+          <div class="notes ph">// suas anotações</div>
+        </div>
+      </div>
+    </div>
+    <div class="cell"><div class="cell-label"><b>A5</b> · atualizado</div>
+      <div class="panel">
+        <div class="chrome"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="dot req done-flash"></span>
+          <span class="title">organiza repo padrão indústria</span><button class="editbtn">editar</button></div>
+        <div class="content">
+          <div class="cmt">/* status */</div>
+          <div class="status"><span class="fresh">🎯 organizar o repo do Lapso
+🔄 empacotando a versão 0.3.3
+📍 falta só o teste final
+🕒 22:04</span></div>
+          <div class="cmt sp">/* notas */</div>
+          <div class="notes ph">// suas anotações</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

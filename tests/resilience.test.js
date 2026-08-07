@@ -543,6 +543,88 @@ async function run() {
     }
     ext.config.titleCacheMax = antes;
   }
+
+  // ================= BLOCO G — botão "pedir status" (v0.4.0) =================
+  // A sessão do Claude Code preenche a própria nota quando um hook consome o
+  // arquivo-flag .lapso/<sessionId>.request gravado pelo clique no rodapé.
+
+  section("[G1] Clique grava .lapso/<sessionId>.request da sessão exibida");
+  {
+    const { sandbox } = await seedBasic({ sandbox: true });
+    await focus(claudeTab("Corrigir login"));
+    ok(sandbox.requestHidden() === false, "rodapé visível com sessão resolvida");
+    sandbox.clickRequest();
+    await settle(40);
+    const raw = mem.read(LAPSO + "/sA.request");
+    ok(raw !== null, "clique gravou .lapso/sA.request");
+    ok(raw !== null && /^\d{4}-\d{2}-\d{2}T/.test(raw), "flag carrega timestamp ISO");
+    ok(sandbox.requestWaiting() === true, "rodapé entra em 'aguardando' após o clique");
+    const posts = sandbox.outbound.filter((m) => m.command === "requestStatus").length;
+    sandbox.clickRequest();
+    await settle(20);
+    ok(
+      sandbox.outbound.filter((m) => m.command === "requestStatus").length === posts,
+      "clique durante 'aguardando' é ignorado (não duplica o pedido)"
+    );
+  }
+
+  section("[G2] Status novo da sessão pedida fecha o ciclo (aguardando → atualizado)");
+  {
+    const { sandbox } = await seedBasic({ sandbox: true });
+    await focus(claudeTab("Corrigir login"));
+    sandbox.clickRequest();
+    await settle(40);
+    // A sessão "responde" como o hook faria: escreve status novo na nota.
+    mem.write(LAPSO + "/sA.md", noteBody("STATUS FRESCO", "notas A"));
+    fireWatcher("change", LAPSO + "/sA.md");
+    await settle(80);
+    ok(sandbox.statusText() === "STATUS FRESCO", "status novo renderizado após a resposta");
+    ok(sandbox.requestDone() === true, "rodapé confirma '✓ status atualizado agora'");
+    ok(sandbox.requestWaiting() === false, "estado 'aguardando' foi liberado");
+  }
+
+  section("[G3] Sem sessão resolvida o rodapé some e o clique não pede nada");
+  {
+    const { sandbox } = await seedBasic({ sandbox: true });
+    transcriptNoTitle("sNova");
+    await focus(claudeTab("Sessão sem título ainda"));
+    ok(sandbox.requestHidden() === true, "rodapé oculto sem sessão resolvida");
+    const before = sandbox.outbound.filter((m) => m.command === "requestStatus").length;
+    sandbox.clickRequest();
+    await settle(20);
+    ok(
+      sandbox.outbound.filter((m) => m.command === "requestStatus").length === before,
+      "clique sem sessão resolvida não posta pedido"
+    );
+  }
+
+  section("[G4] Pedido pendente morre com a aba (flag não fica órfão)");
+  {
+    const { sandbox } = await seedBasic({ sandbox: true });
+    const tabA = claudeTab("Corrigir login");
+    await focus(tabA);
+    sandbox.clickRequest();
+    await settle(40);
+    ok(mem.read(LAPSO + "/sA.request") !== null, "pedido gravado antes do fechamento");
+    await closeTab(tabA);
+    ok(mem.read(LAPSO + "/sA.md") === null, "nota deletada no fechamento da aba");
+    ok(
+      mem.read(LAPSO + "/sA.request") === null,
+      "pedido deletado junto (senão o hook atenderia um flag de sessão morta)"
+    );
+  }
+
+  section("[G5] Host recusa pedido cujo sessionId não é o da sessão exibida");
+  {
+    const { view } = await seedBasic({ sandbox: true });
+    await focus(claudeTab("Corrigir login"));
+    view.sendToHost({ command: "requestStatus", sessionId: "sB" });
+    await settle(40);
+    ok(
+      mem.read(LAPSO + "/sB.request") === null,
+      "clique atrasado pós-troca de aba não pede status em nome de outra sessão"
+    );
+  }
 }
 
 run().then(
