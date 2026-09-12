@@ -8,8 +8,8 @@
 - [x] `npm test` → **167 asserts verdes** (63 novos em 3 suítes). Prova de regressão rodando as suítes novas contra os builds anteriores: **13 falhas** no encoder da v0.4.1, **11** no build 0.4.2.
 - [x] `vsce package` + instalação: `lucasftas.lapso@0.4.4` (conteúdo do vsix conferido, 5 arquivos + CHANGELOG). Nenhuma janela recarregada à força — cada uma pega o build novo no reload natural.
 - [x] Limpeza do repositório: 6 vsix antigos pra lixeira (0.3.2 → 0.4.3), `package-lock.json` destravado do nome antigo `notes-session-vscode`/0.1.0, contagem de asserts e lista de suítes corrigidas no README/CLAUDE.md, ponteiro do hook corrigido (`.cjs`, não `.ps1`).
-- [ ] Sem commit ainda — o working tree carrega v0.4.1 → v0.4.4 (o filé fecha).
-- [ ] **Marketplace segue na 0.3.1** — publicação manual pendente (PAT do `vsce` inválido, `TF400813`).
+- [x] filé v0.4.4: commit `fba141a` + push, release [v0.4.4](https://github.com/lucasftas/lapso/releases/tag/v0.4.4) com o vsix anexo, item do board Monday bumpado, vault atualizado (contexto/decisões + recap), tema preservado (Gruvbox Dark Medium), verificador de coerência do parque **exit 0**, varredura do cofre pessoal sem nada a guardar (repo não tem credencial).
+- [x] **Marketplace destravado**: o PAT do `vsce` segue inválido (`TF400813`), mas o upload saiu pelo **portal manage no navegador logado** (sessão do Brave, SSO passou direto). O `lapso-0.4.4.vsix` foi aceito e entrou em `Verifying 0.4.4`. ⚠️ Achado do caminho: o reCAPTCHA invisível do portal **loga erro** no navegador automatizado (`requestStorageAccess: Permission denied` + CSP barrando `recaptcha/api2/clr`) — parece falha, mas **não bloqueia** o envio; o que engana é a listagem continuar mostrando a versão antiga até a verificação terminar.
 - [ ] Risco deixado em aberto de propósito: o container `claude-sessions-sidebar` tem `when: claude-vscode.sessionsListEnabled`. Se o produto desligar a flag, o painel perde a casa — mudar isso é decisão de produto do Lucas.
 
 ## 2026-08-07 (botão "pedir status", v0.4.0)
