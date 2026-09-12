@@ -116,7 +116,7 @@ Depois `F5` no VSCode (ou `code --extensionDevelopmentPath=.` numa pasta de test
 npm test
 ```
 
-104 asserts, sem framework e sem VSCode aberto: o harness dirige o `out/extension.js` **real** com `vscode` e `node:fs` mockados sobre um filesystem em memória, e um sandbox executa o script do webview num DOM mínimo. Cobre troca de aba, fechamento, escrita concorrente, painel descartado e recriado, sessão ainda sem título, diretório de transcripts ausente e o ciclo do botão "pedir status".
+167 asserts, sem framework e sem VSCode aberto: o harness dirige o `out/extension.js` **real** com `vscode` e `node:fs` mockados sobre um filesystem em memória, e um sandbox executa o script do webview num DOM mínimo. Cobre troca de aba, fechamento, escrita concorrente, painel descartado e recriado, sessão ainda sem título, nome da pasta de transcripts (inclusive caminho com caractere especial e caminho longo com hash), diretório de transcripts ausente e o ciclo do botão "pedir status".
 
 ## Estrutura
 
@@ -126,6 +126,9 @@ tests/harness.js          — mocks de vscode + node:fs e helpers de driver
 tests/webview-sandbox.js  — executa o script do webview num DOM mínimo
 tests/concurrency.test.js — regressão dos fixes críticos da v0.2.2
 tests/resilience.test.js  — suíte de resiliência e persistência (v0.3.0)
+tests/primeiro-prompt.test.js — fallback de nome pelo primeiro prompt (v0.4.1)
+tests/pasta-projeto.test.js   — nome da pasta de transcripts (v0.4.2)
+tests/plugin-mudou.test.js    — premissas que o plugin oficial mudou (v0.4.3)
 resources/icon.svg        — ícone da view (usado se ela for arrastada pra fora do container do Claude Code)
 docs/specs/               — PRD.md (decisões) + Spec.md (milestones)
 ```

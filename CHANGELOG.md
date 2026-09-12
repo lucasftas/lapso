@@ -2,6 +2,60 @@
 
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/). Este projeto segue versionamento semântico.
 
+## [0.4.4] — 2026-09-12
+
+### Fixed
+- **O fallback de nome da v0.4.1 era inerte justamente nas sessões com print colado.** Ele lia a janela fixa da cabeça do transcript (512 KB) — e uma única imagem colada no chat vira **uma linha de 512 KB**, que consome a janela inteira: a leitura morre no meio dessa linha e o prompt, que vem depois, nunca é visto. Foi o que aconteceu no transcript desta sessão (6 linhas na janela, a sexta com 512 KB), e explica por que o painel insistia em "não consegui identificar a sessão desta aba ainda" com a v0.4.1 instalada. Medido junto: o primeiro `last-prompt` fica na **mediana de 504 KB** (máximo 1,1 MB) — em metade das sessões ele já nasce fora da janela, mesmo sem anexo nenhum. Agora, e **só** quando não existe título nenhum, o nome é buscado varrendo o arquivo em blocos de 512 KB (teto de 8 MB), costurando as linhas na fronteira e passando por cima de linha maior que um bloco (anexo nunca é prompt).
+- A varredura guarda **até onde já leu** (`nameScannedTo`) e continua de lá: sessão viva sem título — ou com o prompt além do teto — não relê megabytes a cada sincronização. Coberto por assert que mede bytes lidos na segunda passada.
+
+### Added
+- 2 asserts novos (`[V4]`, `[V5]`): **167** no total. O `[V4]` reproduz o caso real — anexo de 700 KB antes do prompt — e o `[V5]` prova que a segunda sincronização não relê o arquivo.
+
+## [0.4.3] — 2026-09-12
+
+Auditoria da extensão oficial (`anthropic.claude-code-2.1.259`) e do CLI `2.1.269` contra as premissas do Lapso, mais a medição dos 40 transcripts mais recentes. Três premissas continuam de pé (o `viewType` da aba ainda é `claudeVSCodePanel`, o container `claude-sessions-sidebar` existe com o mesmo id, e o título ainda é `ai-title`/`custom-title` — 950 e 89 ocorrências, nenhum tipo novo); as que mudaram estão abaixo.
+
+### Fixed
+- **`isVisibleInTranscript` deixou de existir e o filtro de envelope ficou meio cego.** O campo tem **zero** ocorrência nos 40 transcripts mais recentes; quem marca o resumo de compactação agora é **`isVisibleInTranscriptOnly`** / **`isCompactSummary`**. Esse resumo é a **primeira** entrada de papel `user` de toda sessão nascida de `/compact` ou de retomada, chega como `content` string (sem `<`, sem `Caveat:`) e por isso passava pelos padrões antigos: numa sessão dessas, o nome viraria *"This session is being continued from a previous conversation…"* e a aba nunca casaria. Agora os dois campos novos são reconhecidos, o antigo continua respeitado (transcript velho no disco ainda o traz) e o próprio texto do resumo entrou como guarda, pro caso de a marcação mudar de nome outra vez.
+- **Aba sem título mostra o label genérico `"Claude Code"` — e ele era tratado como se fosse nome de sessão.** É o literal do webview oficial (`título || "Claude Code"`), igual em **todas** as abas frescas. Casar por esse texto era pior que não casar: pegava qualquer sessão cujo título começasse com "Claude Code" (o casamento é por prefixo, para tolerar o label truncado em 24 caracteres + "…") e gravava essa associação como identidade da aba. Agora o label genérico não casa por título e **não vira chave textual persistida** — duas abas frescas deixariam de compartilhar a mesma chave, o que trocaria as notas de lugar.
+- **`CLAUDE_CODE_PROJECT_DIR_NAME` é honrado.** O Claude Code usa essa variável **antes** de qualquer encoding (`override ?? encode(cwd)`); quem a define veria o painel procurar na pasta errada, exatamente como no defeito do `!` corrigido na v0.4.2.
+- **`CLAUDE_CONFIG_DIR` normalizado em NFC**, como o CLI faz com o próprio diretório de config. Em caminho ASCII não muda nada; com acento, as formas composta e decomposta são strings diferentes pro `path.join` e o diretório "não existe".
+- **Arquivo reservado na pasta do projeto não entra mais no índice como sessão** (`timeline.jsonl` e afins). Com a fonte `last-prompt` abaixo, um desses arquivos poderia ser lido como sessão chamada "timeline" e o painel passaria a escrever `.lapso/timeline.md`.
+
+### Added
+- **Nome da sessão pela entrada `last-prompt`**, nova no CLI (`{"type":"last-prompt","lastPrompt":"…"}`, 2.501 ocorrências nos 40 transcripts recentes). A primeira do arquivo é o primeiro prompt **já limpo** — bateu com o prompt real em 6 de 6 sessões conferidas —, então ela tem prioridade sobre a remontagem a partir das entradas `user`, onde **93% das linhas são tool-results** e o prompt tem que ser garimpado. Precedência final: `custom-title` > `ai-title` > `last-prompt` > primeiro prompt remontado.
+- **Aba ainda sem título resolve pelo registro de sessões vivas do CLI** (`<CLAUDE_CONFIG_DIR>/sessions/<pid>.json`, com `sessionId` + `cwd` + `entrypoint`). Se este workspace tem **exatamente uma** sessão aberta pelo VSCode e o transcript dela existe no disco, é ela — e a mensagem "não consegui identificar a sessão desta aba ainda" para de aparecer na janela em que a aba acabou de nascer. Com duas ou mais, **desiste de propósito**: chutar trocaria a nota de lugar. Sessão de CLI puro (`entrypoint: "cli"`) não disputa, registro de outro `cwd` não vaza, e o palpite é sempre conferido contra os transcripts que existem.
+- 23 asserts novos em `tests/plugin-mudou.test.js` (blocos `[U]`…`[Z]`): **165** no total. Rodando contra o build da v0.4.2, **11 deles falham**. Helpers de harness: mock de `fsp.readFile` (o registro de sessões é lido inteiro, não por janela).
+
+### Não mudou (medido, não suposto)
+- Só existem 2 `createWebviewPanel` no bundle oficial, e o de sessão é `claudeVSCodePanel` — **sessão cloud, teleport e teammate usam o mesmo painel**, não há `viewType` novo pra tratar. Nos transcripts recentes: 0 linha `teleported-from`, 0 pasta com `.dir-sync.json`.
+- A extensão oficial **não exporta API** (o `activate` não retorna nada) e nenhum dos 27 comandos devolve a sessão ativa — casar o título da aba continua sendo o único caminho público.
+- Risco conhecido e deixado como está: o container `claude-sessions-sidebar` tem `when: claude-vscode.sessionsListEnabled`. Se o produto desligar essa flag, o painel perde a casa. Mudar isso mexeria em onde o Lapso aparece na barra, e é decisão de produto.
+
+## [0.4.2] — 2026-09-12
+
+### Fixed
+- **Projeto cujo caminho tem caractere especial ficava invisível pro painel — "(sem sessão neste projeto)" num projeto com 3 sessões e 24 MB de transcript.** O nome da pasta de transcripts era montado trocando só `:` `\` `/` `_` `.` por `-`, e o Claude Code troca **tudo** que não é `[a-zA-Z0-9]`. Em caminho "limpo" as duas regras dão exatamente o mesmo nome — foi por isso que o defeito passou meses escondido —, mas em qualquer caminho com outro caractere elas divergem **caladas**: a extensão lia uma pasta que nunca existiu, e o painel respondia com as duas mensagens de projeto virgem ("Nenhuma sessão do Claude Code neste projeto ainda." e, no botão editar, "não consegui identificar a sessão desta aba ainda"). Varredura dos transcripts reais: de **64** projetos com transcript legível, **5** eram invisíveis, todos com `!` no caminho (`!_features`, `!_me`, `!_scale-v2`, `!_prontuario-aluna-global`, `!_backfill-midias`). A regra nova não foi deduzida — saiu do binário do CLI 2.1.269 (`replace(/[^a-zA-Z0-9]/g,"-")`, corte em 200 caracteres + sufixo de hash em base36 sobre o caminho original) e foi conferida contra as 64 pastas medidas.
+- Caminho acima de **200 caracteres** agora resolve: antes o nome longo era usado inteiro, enquanto o Claude Code corta em 200 e acrescenta o hash — nenhuma sessão de caminho fundo era encontrada.
+- A pasta do **encoding antigo** continua sendo lida: versões anteriores do CLI preservavam espaço, `!` e caractere não-latino, e essas pastas seguem no disco com transcripts dentro. Ela entra como segundo candidato — em caminho limpo os dois nomes coincidem e a deduplicação descarta, então nenhuma varredura extra é paga no caso comum.
+
+### Added
+- 24 asserts novos em `tests/pasta-projeto.test.js` (blocos `[S]`, `[T]`), rodando no `npm test`: **142** no total. Cobrem os 5 caminhos reais medidos, a equivalência com a regra antiga em caminho limpo, espaço/acento/caractere não-latino, a truncagem com hash (contra uma reimplementação independente da regra do CLI, e provando que dois caminhos longos de prefixo idêntico não dividem pasta), a resolução ponta a ponta num workspace com `!`, a pasta histórica e o projeto realmente virgem (que deve continuar no placeholder). Rodando contra o encoder da v0.4.1, 13 desses asserts falham.
+- Helpers de harness `transcriptEm` e `usarWorkspace` (transcript em pasta arbitrária e troca do workspace aberto).
+
+## [0.4.1] — 2026-08-29
+
+### Fixed
+- **Sessão sem título ficava órfã pra sempre — painel no placeholder e "não consegui identificar a sessão desta aba ainda".** O índice só sabia casar a aba pelo título gravado no transcript (`ai-title` / `custom-title`), e o "ainda" da mensagem prometia algo que podia não acontecer: medidas duas sessões abertas no mesmo dia com **zero** ocorrência de `"type":"ai-title"` no `.jsonl` depois de horas de uso — o próprio harness documentava a premissa que quebrou (`transcriptNoTitle`: *"medido: ~65 s até o Claude Code gravar o ai-title"*). Sem título, o painel nunca resolvia e o botão de editar recusava. Agora existe um terceiro nível de nome: o **primeiro prompt do usuário**, que é exatamente de onde o Claude Code tira o label da aba (conferido nos transcripts reais: prompt `bora2` → aba `bora2`). Precedência preservada — `custom-title` > `ai-title` > primeiro prompt —, então o fallback nunca disputa com um título de verdade e sai de cena assim que um é gravado.
+- O casamento continua **por identidade, não por palpite**: duas sessões anônimas abertas ao mesmo tempo pegam cada uma a sua nota (um fallback do tipo "a sessão mais recente" trocaria as notas de lugar). Envelope que o Claude Code grava antes do prompt — `<system-reminder>`, caveat de comando local, `<command-name>`, entradas `isMeta` — é pulado, e prompt de várias linhas vira nome de uma linha só.
+
+### Added
+- 14 asserts novos em `tests/primeiro-prompt.test.js` (blocos `[P]`, `[Q]`, `[R]`), rodando no `npm test`: **118** no total. Cobrem o defeito original, a precedência entre os três níveis, o envelope que não pode virar nome, as duas formas de `content` (texto e blocos), o label truncado e a sessão viva que cresce sem perder o nome.
+- Helpers de harness `transcriptFirstPrompt`, `transcriptFirstPromptBlocos` e `appendCustomTitle`.
+
+### Performance
+- O primeiro prompt mora na **cabeça** do arquivo e fica no cache de títulos (campo `first`), então a sessão viva — que só cresce na cauda — não relê a cabeça a cada sincronização. Medido nos transcripts reais: 0,2 ms num `.jsonl` de 5,6 MB, lendo só a janela de 64 KB. O caminho extra só existe enquanto não há título nenhum; assim que o Claude Code grava um, ele morre.
+
 ## [0.4.0] — 2026-08-07
 
 ### Added

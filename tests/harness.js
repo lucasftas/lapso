@@ -110,6 +110,13 @@ function makeFsMocks() {
       mem.counters.readdir++;
       return mem.list(p);
     },
+    // O registro de sessões vivas do CLI (`<config>/sessions/<pid>.json`) é lido inteiro,
+    // não por janela — sem este mock o fallback por sessão viva passava só em produção.
+    async readFile(p, enc) {
+      const f = mem.stat(p);
+      mem.counters.open++;
+      return enc ? f.content.toString(enc) : f.content;
+    },
     async open(p, _flags) {
       const key = norm(p);
       if (mem.failReadOnce.has(key)) {
@@ -443,10 +450,67 @@ function transcriptNoTitle(sessionId) {
   );
 }
 
+// Transcript sem título mas COM o primeiro prompt do usuário — o estado real medido em
+// 2026-08-29, quando sessões novas ficaram horas sem `ai-title` nenhum. `antes` injeta as
+// linhas de envelope que o Claude Code grava ANTES do prompt (system-reminder, caveat de
+// comando local, contexto de hook), que não podem ser confundidas com o nome da sessão.
+function transcriptFirstPrompt(sessionId, prompt, antes = []) {
+  const linhas = [
+    ...antes.map((texto) =>
+      JSON.stringify({ type: "user", sessionId, message: { role: "user", content: texto } })
+    ),
+    JSON.stringify({ type: "user", sessionId, message: { role: "user", content: prompt } }),
+  ];
+  mem.write(PROJECTS_DIR + "/" + sessionId + ".jsonl", linhas.join("\n") + "\n");
+}
+
+// Transcript num diretório de projeto ARBITRÁRIO — pra exercitar a resolução do nome da
+// pasta (encodeCwd) com workspace fora do `d:/testws` padrão, que não tem caractere
+// especial nenhum e por isso não distingue a regra atual da antiga.
+function transcriptEm(dirProjeto, sessionId, aiTitle) {
+  mem.mkdir(dirProjeto);
+  const linhas = [
+    JSON.stringify({ type: "user", sessionId, seq: -1 }),
+    JSON.stringify({ type: "ai-title", aiTitle, sessionId }),
+  ];
+  mem.write(dirProjeto + "/" + sessionId + ".jsonl", linhas.join("\n") + "\n");
+}
+
+// Troca o workspace aberto (o mock expõe um array só de leitura pro código sob teste).
+// Devolve a função que restaura o padrão — chamar sempre no fim do bloco, senão os testes
+// seguintes herdam o workspace trocado.
+function usarWorkspace(fsPath) {
+  const anterior = vscodeMock.workspace.workspaceFolders;
+  vscodeMock.workspace.workspaceFolders = [
+    { uri: uriFile(fsPath), name: fsPath.split(/[\\/]/).pop(), index: 0 },
+  ];
+  return () => {
+    vscodeMock.workspace.workspaceFolders = anterior;
+  };
+}
+
+// Mesma coisa, com o conteúdo em blocos (a outra forma que o Claude Code grava).
+function transcriptFirstPromptBlocos(sessionId, prompt) {
+  mem.write(
+    PROJECTS_DIR + "/" + sessionId + ".jsonl",
+    JSON.stringify({
+      type: "user",
+      sessionId,
+      message: { role: "user", content: [{ type: "text", text: prompt }] },
+    }) + "\n"
+  );
+}
+
 function appendTitle(sessionId, aiTitle) {
   const key = PROJECTS_DIR + "/" + sessionId + ".jsonl";
   const raw = mem.read(key) ?? "";
   mem.write(key, raw + JSON.stringify({ type: "ai-title", aiTitle, sessionId }) + "\n");
+}
+
+function appendCustomTitle(sessionId, customTitle) {
+  const key = PROJECTS_DIR + "/" + sessionId + ".jsonl";
+  const raw = mem.read(key) ?? "";
+  mem.write(key, raw + JSON.stringify({ type: "custom-title", customTitle, sessionId }) + "\n");
 }
 
 // ---------- webview fake (lado do host) ----------
@@ -605,7 +669,12 @@ module.exports = {
   statusOf,
   transcript,
   transcriptNoTitle,
+  transcriptEm,
+  usarWorkspace,
+  transcriptFirstPrompt,
+  transcriptFirstPromptBlocos,
   appendTitle,
+  appendCustomTitle,
   makeFakeView,
   makeContext,
   boot,

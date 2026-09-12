@@ -1,5 +1,17 @@
 # Operations Log
 
+## 2026-09-12 (pasta de transcripts + auditoria do plugin oficial, v0.4.2 → v0.4.4)
+- [x] Diagnóstico do print do Lucas ("(sem sessão neste projeto)" num projeto com 3 sessões): não era o defeito da v0.4.1 — a sessão tinha `custom-title`. Era o nome da pasta de transcripts. Regra real extraída do **binário do CLI 2.1.269** (`replace(/[^a-zA-Z0-9]/g,"-")`, corte em 200 + hash base36) e conferida contra as 64 pastas com transcript legível: **5 invisíveis**, todas com `!` no caminho.
+- [x] Auditoria da extensão instalada (`anthropic.claude-code-2.1.259`, bundle + manifest) contra as 7 premissas do Lapso, com os achados verificados por medição própria nos 40 transcripts mais recentes (o relatório do agente foi tratado como hipótese, não como fonte). 3 premissas de pé, 4 mudaram.
+- [x] Implementação v0.4.3: campos novos de envelope, `last-prompt` como fonte de nome, label genérico `"Claude Code"` neutralizado (inclusive como chave textual), `CLAUDE_CODE_PROJECT_DIR_NAME`, NFC no config dir, nomes reservados fora do índice, fallback pelo registro `sessions/<pid>.json`.
+- [x] **Teste no ambiente real pegou o que o harness não pegava**: com o build 0.4.3 instalado, a sessão desta janela continuava sem nome — a janela de cabeça de 512 KB morria dentro de **uma linha de 512 KB** (imagem colada no chat). Medido: primeiro `last-prompt` na mediana de 504 KB. → v0.4.4 com varredura em blocos (teto 8 MB) e memória do ponto lido. Prova no disco real: **2 de 2** sessões sem título nomeadas.
+- [x] `npm test` → **167 asserts verdes** (63 novos em 3 suítes). Prova de regressão rodando as suítes novas contra os builds anteriores: **13 falhas** no encoder da v0.4.1, **11** no build 0.4.2.
+- [x] `vsce package` + instalação: `lucasftas.lapso@0.4.4` (conteúdo do vsix conferido, 5 arquivos + CHANGELOG). Nenhuma janela recarregada à força — cada uma pega o build novo no reload natural.
+- [x] Limpeza do repositório: 6 vsix antigos pra lixeira (0.3.2 → 0.4.3), `package-lock.json` destravado do nome antigo `notes-session-vscode`/0.1.0, contagem de asserts e lista de suítes corrigidas no README/CLAUDE.md, ponteiro do hook corrigido (`.cjs`, não `.ps1`).
+- [ ] Sem commit ainda — o working tree carrega v0.4.1 → v0.4.4 (o filé fecha).
+- [ ] **Marketplace segue na 0.3.1** — publicação manual pendente (PAT do `vsce` inválido, `TF400813`).
+- [ ] Risco deixado em aberto de propósito: o container `claude-sessions-sidebar` tem `when: claude-vscode.sessionsListEnabled`. Se o produto desligar a flag, o painel perde a casa — mudar isso é decisão de produto do Lucas.
+
 ## 2026-08-07 (botão "pedir status", v0.4.0)
 - [x] Pesquisa de viabilidade "injetar prompt numa sessão aberta": código da extensão Claude Code 2.1.221 instalada (manifest + bundle) + docs oficiais via agente. Deep link `/open?session&prompt` achado e descartado (painel aberto descarta o prompt); rota escolhida: flag + hook `PostToolUse`.
 - [x] Mock storyboard com 5 variantes × 3 estados (`mocks/lapso-botao-status-storyboard.html`), aberto no Waterfox → **A4 (barra de rodapé) aprovada** pelo Lucas.

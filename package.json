@@ -2,7 +2,7 @@
   "name": "lapso",
   "displayName": "Lapso",
   "description": "Post-it dockado por sessão do Claude Code: segue a aba em destaque e mostra a nota daquela sessão — status escrito pelo Claude + suas anotações, em .lapso/<sessionId>.md",
-  "version": "0.4.0",
+  "version": "0.4.4",
   "keywords": [
     "claude code",
     "post-it",
@@ -53,7 +53,7 @@
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "test": "npm run compile && node tests/concurrency.test.js && node tests/resilience.test.js"
+    "test": "npm run compile && node tests/concurrency.test.js && node tests/resilience.test.js && node tests/primeiro-prompt.test.js && node tests/pasta-projeto.test.js && node tests/plugin-mudou.test.js"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

@@ -39,16 +39,19 @@ tests/harness.js          — mocks de vscode + node:fs, FS em memória com cont
 tests/webview-sandbox.js  — executa o script do webview num DOM mínimo (testa o painel sem VSCode)
 tests/concurrency.test.js — regressão dos fixes críticos da v0.2.2
 tests/resilience.test.js  — suíte de resiliência e persistência (v0.3.0)
+tests/primeiro-prompt.test.js — fallback de nome pelo primeiro prompt (v0.4.1)
+tests/pasta-projeto.test.js   — nome da pasta de transcripts: encodeCwd × regra real do CLI (v0.4.2)
+tests/plugin-mudou.test.js    — premissas que o plugin oficial mudou (v0.4.3)
 resources/icon.svg        — ícone da view (campo "icon" em contributes.views; o Lapso mora no container claude-sessions-sidebar do Claude Code desde a v0.3.1)
 docs/specs/PRD.md         — decisões técnicas
 docs/specs/Spec.md        — milestones + critério de pronto
 ```
 
 ## Testes
-`npm test` roda as duas suítes (104 asserts). Nenhuma correção de comportamento entra sem assert que a cubra — e o assert cita o defeito original, pra não virar teste órfão.
+`npm test` roda as cinco suítes (167 asserts). Nenhuma correção de comportamento entra sem assert que a cubra — e o assert cita o defeito original, pra não virar teste órfão.
 
 ## Botão "pedir status" (v0.4.0)
-O rodapé do painel grava `.lapso/<sessionId>.request`; um hook do Claude Code (`PostToolUse` sem matcher + `Stop`, script `lapso-status-request.ps1` nas configs globais do mantenedor) consome o flag e injeta a instrução pra sessão atualizar a própria nota no meio do turno. Gotcha comprovado: em `PostToolUse`, contexto só chega ao modelo como JSON `hookSpecificOutput.additionalContext` — stdout puro é ignorado. A receita pública genérica está no README.
+O rodapé do painel grava `.lapso/<sessionId>.request`; um hook do Claude Code (`PostToolUse` sem matcher + `Stop`, script `lapso-status-request.cjs` nas configs globais do mantenedor — a versão `.ps1` original ficou órfã lá desde 2026-08-11) consome o flag e injeta a instrução pra sessão atualizar a própria nota no meio do turno. Gotcha comprovado: em `PostToolUse`, contexto só chega ao modelo como JSON `hookSpecificOutput.additionalContext` — stdout puro é ignorado. A receita pública genérica está no README.
 
 ## ⛔ A animação de digitação do status é intocável
 `typewriterStatus` no webview (`MS_PER_CHAR`, `MAX_DURATION_MS`, reveal a partir do char 0, rodando em toda troca de aba) é uma escolha explícita do Lucas — confirmada em 2026-08-04. Não "otimizar" sem ele pedir. O que pode mudar é *quando* ela dispara (a chave de dedup do render).

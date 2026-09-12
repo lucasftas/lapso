@@ -43,6 +43,13 @@ export const config = {
   tailWindowBytes: 256 * 1024,
   // Último recurso: se nem cabeça nem cauda tinham título, relê inteiro até este teto.
   hugeReadMaxBytes: 32 * 1024 * 1024,
+  // Busca do NOME de uma sessão sem título: varre o arquivo em blocos, do começo, até
+  // achar o primeiro prompt. ⚠️ Não dá pra depender da janela da cabeça: medido em
+  // 2026-09-12, o primeiro `last-prompt` fica na mediana de 504 KB (máximo 1,1 MB) e um
+  // único anexo colado no chat gera linha de 512 KB que consome a janela inteira — foi o
+  // que deixou o fallback da v0.4.1 inerte justamente nas sessões com print colado.
+  nameScanChunkBytes: 512 * 1024,
+  nameScanMaxBytes: 8 * 1024 * 1024,
   // Recuo aplicado na leitura incremental pra não cortar uma linha ao meio.
   deltaBackoffBytes: 4096,
   // Título que não resolveu não é re-varrido por este tempo (clicar num arquivo comum
@@ -146,15 +153,66 @@ type ReadResult =
 
 // --- Resolução título-da-aba → sessionId, via os transcripts .jsonl do Claude Code ---
 
-function claudeProjectsDir(): string {
-  const base = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), ".claude");
-  return path.join(base, "projects");
+// ⚠️ `.normalize("NFC")` copia o que o Claude Code faz com o próprio diretório de config
+// (`(CLAUDE_CONFIG_DIR ?? ~/.claude).normalize("NFC")`): em caminho ASCII não muda nada, mas
+// com acento as duas formas Unicode (composta e decomposta) são strings diferentes pro
+// `path.join` e o diretório "não existe".
+function claudeConfigDir(): string {
+  return (process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), ".claude")).normalize("NFC");
 }
 
-// Encoding do cwd que o Claude Code usa pro nome da pasta de projeto:
-// troca ':', '\', '/', '_', '.' por '-'. Ex: c:\projects\_my.repo
-// -> c--projects--my-repo
+function claudeProjectsDir(): string {
+  return path.join(claudeConfigDir(), "projects");
+}
+
+// Registro de sessões VIVAS que o CLI mantém: um `<pid>.json` por sessão, com `sessionId`,
+// `cwd` e `entrypoint`. Não é a fonte do título — é o desempate de última hora pra aba que
+// ainda não tem título nenhum (ver `liveSessionFor`).
+function claudeSessionsRegistryDir(): string {
+  return path.join(claudeConfigDir(), "sessions");
+}
+
+// Limite e hash do nome de pasta, iguais aos do Claude Code: passando de 200 caracteres
+// o nome é cortado e ganha um sufixo de hash pra não colidir com outro caminho longo.
+const CWD_DIR_MAX = 200;
+
+// hashCode estilo Java (o mesmo do CLI): e = (e << 5) - e + charCode, em int32.
+// ⚠️ Hasheia o caminho ORIGINAL, não o sanitizado.
+function hashCwd(fsPath: string): number {
+  let acc = 0;
+  for (let i = 0; i < fsPath.length; i++) {
+    acc = ((acc << 5) - acc + fsPath.charCodeAt(i)) | 0;
+  }
+  return acc;
+}
+
+// Encoding do cwd que o Claude Code usa pro nome da pasta de projeto: TODO caractere
+// que não é [a-zA-Z0-9] vira '-'. Ex: c:\projects\_my.repo -> c--projects--my-repo,
+// e d:\GitHub\!_features -> d--GitHub---features (o '!' também vira '-').
+//
+// ⚠️ Extraído do binário do CLI 2.1.269, não deduzido:
+//   var j6 = 200;
+//   function k(e){ return e.replace(/[^a-zA-Z0-9]/g,"-") }
+//   function cC(e){ let n=k(e); if(n.length<=j6) return n; return `${n.slice(0,j6)}-${Le(e)}` }
+// Antes esta função trocava só [:\\/._] — o que coincide com o resultado da regra real em
+// caminho "limpo" e divergia calado em qualquer outro caractere. Medido em 2026-09-12
+// nos transcripts reais: 5 de 64 projetos ficavam invisíveis pro painel, todos com '!'
+// no caminho (`!_features`, `!_me`, `!_scale-v2`, …) — a sessão existia, o transcript
+// existia, e o Lapso procurava numa pasta que nunca existiu.
 export function encodeCwd(fsPath: string): string {
+  const nome = fsPath.replace(/[^a-zA-Z0-9]/g, "-");
+  if (nome.length <= CWD_DIR_MAX) {
+    return nome;
+  }
+  return `${nome.slice(0, CWD_DIR_MAX)}-${Math.abs(hashCwd(fsPath)).toString(36)}`;
+}
+
+// Encoding de versões ANTIGAS do Claude Code, que preservavam tudo fora de [:\/._] —
+// inclusive espaço, '!' e caractere não-latino. As pastas criadas naquela época seguem
+// no disco com transcripts dentro, então continuam sendo candidatas: em caminho limpo o
+// resultado é idêntico ao atual (e a dedup abaixo descarta), e só em caminho com
+// caractere especial nascem duas pastas — a nova e a histórica.
+export function encodeCwdLegado(fsPath: string): string {
   return fsPath.replace(/[:\\/._]/g, "-");
 }
 
@@ -174,16 +232,120 @@ export function sessionsDirCandidates(): string[] {
   }
   const seen = new Set<string>();
   const out: string[] = [];
-  for (const v of variants) {
-    const dir = path.join(projects, encodeCwd(v));
-    const key = process.platform === "win32" ? dir.toLowerCase() : dir;
-    if (seen.has(key)) {
-      continue;
-    }
-    seen.add(key);
+  // Override explícito do nome da pasta, honrado pelo Claude Code antes de qualquer
+  // encoding (`CLAUDE_CODE_PROJECT_DIR_NAME ?? encode(cwd)`). Quem usa isso quebraria o
+  // painel do mesmo jeito que o caractere especial quebrava.
+  const override = process.env.CLAUDE_CODE_PROJECT_DIR_NAME;
+  if (override) {
+    const dir = path.join(projects, override);
+    seen.add(process.platform === "win32" ? dir.toLowerCase() : dir);
     out.push(dir);
   }
+  // Regra atual primeiro: é onde a sessão de hoje grava. O legado entra depois, como
+  // fallback pra projeto que só tem pasta antiga.
+  for (const encode of [encodeCwd, encodeCwdLegado]) {
+    for (const v of variants) {
+      const dir = path.join(projects, encode(v));
+      const key = process.platform === "win32" ? dir.toLowerCase() : dir;
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      out.push(dir);
+    }
+  }
   return out;
+}
+
+// Label que o webview oficial usa quando a sessão ainda não tem título: `título || "Claude
+// Code"`. Não identifica nada — toda aba fresca da janela mostra este mesmo texto.
+const LABEL_GENERICO = "claude code";
+
+// ⚠️ Compara em minúsculas porque `normalizeTitle` só faz trim + NFC (o casamento de
+// título é sensível a caixa de propósito). Sem isto a checagem nunca disparava — pego
+// pelos asserts [X1]/[Y1] da suíte `plugin-mudou`.
+export function ehLabelGenerico(titleNormalizado: string): boolean {
+  return titleNormalizado.trim().toLowerCase() === LABEL_GENERICO;
+}
+
+// Nomes que o Claude Code reserva dentro da pasta de projeto — não são sessões. O CLI
+// passou a guardar `timeline.jsonl` no nível do projeto, além de `.dir-sync.json`,
+// `.ccr-tip.json`, `bridge-pointer.json` e `.session-aliases` (estes não terminam em
+// `.jsonl`, então já caem fora), e os transcripts de subagente/workflow vivem em subpasta
+// por sessão (invisíveis pro `readdir` não-recursivo, que é o comportamento certo).
+//
+// ⚠️ Sem este filtro, `timeline.jsonl` entraria no índice como se "timeline" fosse um
+// sessionId: pagaria stat + leitura em toda varredura e, pior, o nome de fallback lido dele
+// poderia casar com o label de uma aba — o painel passaria a escrever `.lapso/timeline.md`.
+// Preferi rejeitar nomes conhecidos a exigir formato UUID: o formato do sessionId é do CLI
+// e pode mudar, e um filtro por formato descartaria sessão de verdade calado.
+const NOMES_RESERVADOS = new Set([
+  "timeline",
+  "journal",
+  "history",
+  "bridge-pointer",
+  "session-aliases",
+  "tiny_memory",
+]);
+
+export function ehTranscriptDeSessao(nome: string): boolean {
+  return !!nome && !NOMES_RESERVADOS.has(nome.toLowerCase());
+}
+
+interface SessaoViva {
+  sessionId: string;
+  cwd: string;
+  entrypoint?: string;
+  updatedAt?: number;
+  startedAt?: number;
+}
+
+// Último recurso pra aba que mostra só `"Claude Code"`: o CLI mantém um `<pid>.json` por
+// sessão em `<CLAUDE_CONFIG_DIR>/sessions/`, com `sessionId`, `cwd` e `entrypoint`. Se este
+// workspace tem EXATAMENTE UMA sessão aberta pelo VSCode, ela é a da aba — não há o que
+// desambiguar. Com duas ou mais, desiste: chutar trocaria a nota de lugar.
+//
+// ⚠️ Isto é observação de um arquivo interno do CLI, não uma API: a extensão oficial não
+// lê nem escreve esses campos. Por isso entra só DEPOIS de título e associação de aba, e
+// exige que o transcript da sessão exista de fato numa das pastas candidatas.
+export async function liveSessionFor(cwdWorkspace: string, idsNoDisco: Set<string>): Promise<string | undefined> {
+  let nomes: string[];
+  try {
+    nomes = await fsp.readdir(claudeSessionsRegistryDir());
+  } catch {
+    return undefined; // registro não existe nesta versão do CLI
+  }
+  const alvo = normalizaCaminho(cwdWorkspace);
+  const achados: SessaoViva[] = [];
+  for (const nome of nomes) {
+    if (!nome.endsWith(".json")) {
+      continue;
+    }
+    let dados: SessaoViva;
+    try {
+      dados = JSON.parse(await fsp.readFile(path.join(claudeSessionsRegistryDir(), nome), "utf8"));
+    } catch {
+      continue; // arquivo pego no meio de uma escrita
+    }
+    if (!dados?.sessionId || !dados.cwd || normalizaCaminho(dados.cwd) !== alvo) {
+      continue;
+    }
+    // Sessão de CLI puro não tem aba no editor — só as abertas pelo VSCode disputam.
+    if (dados.entrypoint && dados.entrypoint !== "claude-vscode") {
+      continue;
+    }
+    if (!idsNoDisco.has(dados.sessionId)) {
+      continue;
+    }
+    achados.push(dados);
+  }
+  return achados.length === 1 ? achados[0].sessionId : undefined;
+}
+
+// Comparação de caminho tolerante ao que varia entre as duas pontas: o registro do CLI
+// grava `d:\GitHub\…` e o VSCode entrega `D:\GitHub\…`.
+function normalizaCaminho(p: string): string {
+  return p.replace(/[\\/]+$/, "").replace(/\\/g, "/").normalize("NFC").toLowerCase();
 }
 
 // A raiz existe? É o que separa "CLAUDE_CONFIG_DIR invisível pro VSCode" (raiz ausente)
@@ -223,6 +385,158 @@ export function scanTitles(chunk: string): { ai: string; custom: string } {
   return { ai, custom };
 }
 
+// Texto que o VSCode NÃO usa pra nomear a aba: envelopes de ferramenta, avisos do
+// sistema e contexto injetado por hook chegam como mensagem de papel "user" e
+// atropelariam o primeiro prompt de verdade.
+//
+// A terceira alternativa cobre o resumo de compactação, que é a PRIMEIRA entrada de papel
+// "user" numa sessão nascida de `/compact` ou de retomada. Medido em 2026-09-12 nos 40
+// transcripts mais recentes: ele chega como `content` string (sem `<`, sem `Caveat:`) e por
+// isso passava pelos dois primeiros padrões — viraria o nome da sessão.
+const NAO_E_PROMPT = /^(<|Caveat:|\[Request interrupted|This session is being continued from a previous conversation)/;
+
+// Entrada de transcript que existe só pra contexto e não é prompt digitado. ⚠️
+// `isVisibleInTranscript` era o campo até meados de 2026 e ZEROU: nos 40 transcripts mais
+// recentes ele tem 0 ocorrência, e quem marca o resumo de compactação agora é
+// `isVisibleInTranscriptOnly` / `isCompactSummary` (6 ocorrências cada, sempre no mesmo
+// envelope). O campo velho fica na checagem porque transcript antigo no disco ainda o traz.
+function ehEnvelope(entrada: {
+  isMeta?: boolean;
+  isVisibleInTranscript?: boolean;
+  isVisibleInTranscriptOnly?: boolean;
+  isCompactSummary?: boolean;
+}): boolean {
+  return !!(
+    entrada.isMeta ||
+    entrada.isVisibleInTranscript === false ||
+    entrada.isVisibleInTranscriptOnly ||
+    entrada.isCompactSummary
+  );
+}
+
+// Nome da sessão pela entrada `last-prompt`, que o Claude Code passou a gravar a cada
+// prompt: `{"type":"last-prompt","lastPrompt":"…","leafUuid":"…"}`. A PRIMEIRA do arquivo é
+// o primeiro prompt, já limpo — sem envelope de ferramenta, sem tool_result, sem imagem.
+// Medido em 2026-09-12: bate com o primeiro prompt em 6 de 6 sessões conferidas, e são
+// 2.501 ocorrências nos 40 transcripts mais recentes. Por ser mais barato e mais robusto que
+// remontar o prompt a partir das entradas `user`, tem prioridade sobre `scanFirstPrompt`.
+const LAST_PROMPT = /"lastPrompt":"((?:[^"\\]|\\.)*)"/;
+
+export function scanLastPrompt(chunk: string): string {
+  for (const line of chunk.split(/\r?\n/)) {
+    if (!line.includes('"type":"last-prompt"')) {
+      continue;
+    }
+    const m = line.match(LAST_PROMPT);
+    if (!m) {
+      continue;
+    }
+    const texto = decodeJsonString(m[1]).trim();
+    if (!texto || NAO_E_PROMPT.test(texto)) {
+      continue;
+    }
+    // Uma linha só: a aba nunca mostra quebra.
+    return texto.split(/\r?\n/)[0].trim();
+  }
+  return "";
+}
+
+// Último recurso pra nomear uma sessão: o PRIMEIRO PROMPT do usuário.
+//
+// ⚠️ Por que existe: o `transcriptNoTitle` dos testes documenta "~65 s até o Claude Code
+// gravar o ai-title", e o índice inteiro depende desse registro pra casar a aba. Medido em
+// 2026-08-29: sessões novas ficaram HORAS sem `ai-title` nenhum (zero ocorrência de
+// `"type":"ai-title"` no .jsonl), e sem título o painel nunca resolve — a mensagem
+// "não consegui identificar a sessão desta aba ainda" some só quando o registro aparece,
+// e ele pode não aparecer nunca. O primeiro prompt não tem esse problema: é gravado na
+// primeira troca e é EXATAMENTE de onde o Claude Code tira o nome da aba (conferido nas
+// sessões reais: prompt "bora2" → aba "bora2"), então casa pela régua que já existe,
+// inclusive truncado (`titleMatches`).
+//
+// Só entra quando não há `custom-title` nem `ai-title`; assim que um deles é gravado, ele
+// assume — o Claude Code renomeia a aba no mesmo movimento, e as duas pontas seguem juntas.
+export function scanFirstPrompt(chunk: string): string {
+  for (const line of chunk.split(/\r?\n/)) {
+    if (!line.includes('"type":"user"')) {
+      continue;
+    }
+    let entrada: {
+      isMeta?: boolean;
+      isVisibleInTranscript?: boolean;
+      isVisibleInTranscriptOnly?: boolean;
+      isCompactSummary?: boolean;
+      message?: { content?: unknown };
+    };
+    try {
+      entrada = JSON.parse(line);
+    } catch {
+      continue; // linha cortada ao meio pela janela de leitura
+    }
+    if (ehEnvelope(entrada)) {
+      continue;
+    }
+    const conteudo = entrada.message?.content;
+    let texto = "";
+    if (typeof conteudo === "string") {
+      texto = conteudo;
+    } else if (Array.isArray(conteudo)) {
+      for (const bloco of conteudo) {
+        if (bloco && typeof bloco === "object" && (bloco as { type?: string }).type === "text") {
+          texto = String((bloco as { text?: string }).text ?? "");
+          break;
+        }
+      }
+    }
+    texto = texto.trim();
+    if (!texto || NAO_E_PROMPT.test(texto)) {
+      continue;
+    }
+    // Uma linha só: a aba nunca mostra quebra, e o label é o começo do prompt.
+    return texto.split(/\r?\n/)[0].trim();
+  }
+  return "";
+}
+
+// Nome de uma sessão SEM título, na ordem do mais confiável pro mais frágil: a entrada
+// `last-prompt` (já limpa, gravada pelo Claude Code) e, se ela não existir naquele pedaço,
+// a remontagem a partir das entradas `user` — que é o caminho de transcript mais antigo.
+function nomeSemTitulo(chunk: string): string {
+  return scanLastPrompt(chunk) || scanFirstPrompt(chunk);
+}
+
+// Varre o transcript em blocos, do começo (ou de onde uma varredura anterior parou), até
+// achar o nome ou bater o teto. Devolve também até onde leu, pra sessão viva sem título
+// não revarrer o mesmo trecho a cada sincronização.
+//
+// A costura entre blocos guarda a sobra da última linha incompleta; linha maior que um
+// bloco inteiro (anexo, imagem colada) é descartada — nunca é prompt nem `last-prompt`,
+// e acumulá-la só faria a memória crescer.
+async function buscarNomeEmBlocos(
+  file: string,
+  size: number,
+  de: number
+): Promise<{ nome: string; varridoAte: number }> {
+  const teto = Math.min(size, config.nameScanMaxBytes);
+  let pos = Math.max(0, de);
+  let sobra = "";
+  while (pos < teto) {
+    const len = Math.min(config.nameScanChunkBytes, teto - pos);
+    const bruto = sobra + (await readWindow(file, pos, len));
+    pos += len;
+    const ultimaQuebra = bruto.lastIndexOf("\n");
+    const completo = ultimaQuebra === -1 ? "" : bruto.slice(0, ultimaQuebra);
+    sobra = ultimaQuebra === -1 ? bruto : bruto.slice(ultimaQuebra + 1);
+    if (sobra.length > config.nameScanChunkBytes) {
+      sobra = ""; // linha gigante: segue em frente em vez de acumular
+    }
+    const nome = nomeSemTitulo(completo);
+    if (nome) {
+      return { nome, varridoAte: pos };
+    }
+  }
+  return { nome: "", varridoAte: pos };
+}
+
 async function readWindow(file: string, start: number, length: number): Promise<string> {
   if (length <= 0) {
     return "";
@@ -242,6 +556,13 @@ interface TitleCacheEntry {
   size: number;
   ai: string;
   custom: string;
+  // Primeiro prompt do usuário — fallback de nome quando o transcript não tem título
+  // nenhum. Fica no cache porque mora na CABEÇA do arquivo: sem guardar, a sessão viva
+  // (que só cresce na cauda) releria a cabeça a cada sincronização.
+  first?: string;
+  // Até onde a busca do nome já varreu. Sem isto, sessão sem título e sem prompt (ou com
+  // o prompt além do teto) revarreria megabytes a cada sincronização.
+  nameScannedTo?: number;
   title: string;
 }
 
@@ -380,6 +701,8 @@ export class SessionTitleIndex {
 
     let ai = "";
     let custom = "";
+    let first = cached?.first ?? "";
+    let nameScannedTo = cached?.nameScannedTo ?? 0;
     try {
       if (cached && stat.size >= cached.size && cached.size > 0) {
         const from = Math.max(0, cached.size - config.deltaBackoffBytes);
@@ -393,31 +716,84 @@ export class SessionTitleIndex {
         ai = found.ai || cached.ai;
         custom = found.custom || cached.custom;
       } else if (stat.size <= config.fullReadMaxBytes) {
-        const found = scanTitles(await readWindow(file, 0, stat.size));
+        const conteudo = await readWindow(file, 0, stat.size);
+        const found = scanTitles(conteudo);
         ai = found.ai;
         custom = found.custom;
+        first = nomeSemTitulo(conteudo);
       } else {
         // Duas janelas de tamanho fixo, independentes do tamanho do arquivo: a cabeça
         // (ai-title original, gravado nas primeiras trocas) e a cauda (renomeação e
         // custom-title, que são sempre entradas posteriores). A cauda tem prioridade.
-        const head = scanTitles(await readWindow(file, 0, Math.min(config.headWindowBytes, stat.size)));
+        const cabeca = await readWindow(file, 0, Math.min(config.headWindowBytes, stat.size));
+        const head = scanTitles(cabeca);
         const tailFrom = Math.max(0, stat.size - config.tailWindowBytes);
         const tail = scanTitles(await readWindow(file, tailFrom, stat.size - tailFrom));
         ai = tail.ai || head.ai;
         custom = tail.custom || head.custom;
+        // O primeiro prompt está na cabeça por definição — a janela já lida basta.
+        first = first || nomeSemTitulo(cabeca);
         if (!ai && !custom && stat.size <= config.hugeReadMaxBytes) {
           const whole = scanTitles(await readWindow(file, 0, stat.size));
           ai = whole.ai;
           custom = whole.custom;
         }
       }
+      // Sessão anônima chegando pelo caminho incremental (só a cauda foi lida) ou vinda
+      // de um cache gravado por versão anterior, que não tinha o campo: o primeiro prompt
+      // mora na cabeça e precisa de uma leitura própria. Custo pago só enquanto não
+      // existe título nenhum — assim que o Claude Code grava um, este ramo morre.
+      // Sessão sem título nenhum: aí sim vale varrer o arquivo em blocos atrás do nome —
+      // a janela fixa da cabeça não serve (uma imagem colada no chat vira uma linha de
+      // 512 KB e come a janela inteira, empurrando o prompt pra fora). A varredura anda
+      // do ponto onde a anterior parou, então a sessão viva não paga isso de novo.
+      if (!ai && !custom && !first && nameScannedTo < stat.size) {
+        const achado = await buscarNomeEmBlocos(file, stat.size, nameScannedTo);
+        first = achado.nome;
+        nameScannedTo = achado.varridoAte;
+      }
     } catch {
       return cached?.title;
     }
 
-    const title = decodeJsonString(custom || ai);
-    this.touch(sessionId, { mtimeMs: stat.mtimeMs, size: stat.size, ai, custom, title });
+    // Precedência: o nome que o Lucas deu vence o que a IA gerou, que vence o primeiro
+    // prompt. O fallback nunca disputa com um título de verdade — só evita que a sessão
+    // fique anônima e o painel sem dono.
+    const title = decodeJsonString(custom || ai) || first;
+    this.touch(sessionId, {
+      mtimeMs: stat.mtimeMs,
+      size: stat.size,
+      ai,
+      custom,
+      first,
+      nameScannedTo,
+      title,
+    });
     return title;
+  }
+
+  // sessionIds que existem de fato nas pastas candidatas deste workspace. Usado pra
+  // conferir o palpite do registro de sessões vivas antes de confiar nele.
+  async sessionIdsOnDisk(): Promise<Set<string>> {
+    const out = new Set<string>();
+    for (const dir of sessionsDirCandidates()) {
+      let nomes: string[];
+      try {
+        nomes = await fsp.readdir(dir);
+      } catch {
+        continue;
+      }
+      for (const n of nomes) {
+        if (!n.endsWith(".jsonl")) {
+          continue;
+        }
+        const id = n.slice(0, -".jsonl".length);
+        if (ehTranscriptDeSessao(id)) {
+          out.add(id);
+        }
+      }
+    }
+    return out;
   }
 
   // Dado o título da aba ativa, acha o sessionId correspondente.
@@ -428,7 +804,12 @@ export class SessionTitleIndex {
     const want = normalizeTitle(activeTitle);
     const candidates = sessionsDirCandidates();
     this.lastTriedDirs = candidates;
-    if (!want) {
+    // Aba sem título nenhum mostra o label genérico `"Claude Code"` (é o literal do
+    // webview oficial: `título || "Claude Code"`) — e TODA aba fresca mostra o mesmo.
+    // Casar por esse texto é pior que não casar: pegaria qualquer sessão cujo título
+    // comece com "Claude Code" e, pior, o índice gravaria essa associação como se fosse
+    // identidade da aba. Quem resolve esse caso é `liveSessionFor`, por `cwd`.
+    if (!want || ehLabelGenerico(want)) {
       const readable = candidates.length > 0;
       return { sessionId: undefined, anyDirReadable: readable, rootReadable: readable };
     }
@@ -446,7 +827,10 @@ export class SessionTitleIndex {
         continue;
       }
       anyDirReadable = true;
-      const ids = names.filter((n) => n.endsWith(".jsonl")).map((n) => n.slice(0, -".jsonl".length));
+      const ids = names
+        .filter((n) => n.endsWith(".jsonl"))
+        .map((n) => n.slice(0, -".jsonl".length))
+        .filter(ehTranscriptDeSessao);
 
       // Fase 1 — casa contra o cache, sem tocar no disco.
       const cachedHits: string[] = [];
@@ -530,6 +914,13 @@ export function isClaudeSessionTab(tab: vscode.Tab | undefined): boolean {
 function tabKey(tab: vscode.Tab): string | undefined {
   const input = tab.input as { viewType?: string } | undefined;
   if (!input || typeof input.viewType !== "string") {
+    return undefined;
+  }
+  // Aba sem título ainda mostra o label genérico `"Claude Code"`, igual em todas — usar
+  // isso como identidade textual faria duas abas frescas compartilharem a mesma chave, e
+  // a nota de uma apareceria (ou seria apagada) no lugar da outra. Nesse estado sobra o
+  // WeakMap por objeto de aba, que é identidade de verdade.
+  if (ehLabelGenerico(normalizeTitle(tab.label))) {
     return undefined;
   }
   return `${input.viewType}\u0000${tab.label}`;
@@ -739,6 +1130,23 @@ class LapsoViewProvider implements vscode.WebviewViewProvider {
       return;
     }
 
+    // Aba que mostra só "Claude Code": não há texto pra casar, mas o registro de sessões
+    // do CLI diz quais sessões estão abertas neste workspace. Uma só → é esta aba.
+    if (anyDirReadable && ehLabelGenerico(normalizeTitle(title))) {
+      const viva = await this.resolveByLiveSession();
+      if (gen !== this.generation) {
+        return;
+      }
+      if (viva) {
+        // Só o WeakMap da aba — a chave textual "Claude Code" é ambígua de propósito
+        // (`tabKey` devolve undefined nela), então nada é persistido.
+        this.tabSessions.set(activeTab, viva);
+        this.cancelRetry();
+        await this.activateSession(viva, title, gen);
+        return;
+      }
+    }
+
     if (!anyDirReadable) {
       this.setSession(undefined);
       // Raiz de transcripts existe → é repo novo, ainda sem sessão gravada. Estado
@@ -780,6 +1188,28 @@ class LapsoViewProvider implements vscode.WebviewViewProvider {
     this.lastSig = "";
     if (!sessionId) {
       this.lastNotes = undefined;
+    }
+  }
+
+  // Consulta o registro de sessões vivas do CLI e confirma contra os transcripts que
+  // existem neste workspace. Devolve undefined se houver ambiguidade — chutar entre duas
+  // sessões abertas trocaria a nota de lugar, que é o pior defeito possível aqui.
+  private async resolveByLiveSession(): Promise<string | undefined> {
+    const folder = vscode.workspace.workspaceFolders?.[0];
+    if (!folder) {
+      return undefined;
+    }
+    try {
+      const ids = await this.index.sessionIdsOnDisk();
+      const achado = await liveSessionFor(folder.uri.fsPath, ids);
+      if (achado) {
+        this.output.appendLine(
+          `[lapso] aba sem título ainda: resolvida pelo registro de sessões vivas do CLI (${achado}).`
+        );
+      }
+      return achado;
+    } catch {
+      return undefined;
     }
   }
 

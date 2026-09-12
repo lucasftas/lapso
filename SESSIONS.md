@@ -1,5 +1,30 @@
 # Sessions
 
+## 2026-09-12 — "pq o lapso da essa mensagem? isso ja nao foi resolvido?" → "o plugin do claude mudou bastante, talvez algo quebrou" (v0.4.2 → v0.4.4)
+
+### Contexto
+
+Um print: o painel dizia `(sem sessão neste projeto)` numa janela com sessão viva. A pergunta era se não tinha sido resolvido na v0.4.1 — e a resposta honesta foi **não**: a v0.4.1 conserta sessão *sem título*, e aquela sessão tinha `custom-title`. Sintoma igual, defeito outro. Depois disso o pedido virou o geral: auditar o que o plugin oficial mudou e limpar o repositório.
+
+### Desafios
+
+- **O sintoma não identifica o defeito.** As duas mensagens que o painel mostra (`(sem sessão neste projeto)` e "não consegui identificar a sessão desta aba ainda") cobrem causas completamente diferentes: pasta errada, título ausente, label genérico. Foi preciso ler o `cwd` dentro do transcript pra descobrir que o Lapso procurava uma pasta que nunca existiu.
+- **Regra de encoding tinha que vir da fonte, não de dedução.** A tentação era inferir do nome das pastas existentes — que são de gerações diferentes do CLI e se contradizem (umas preservam `!` e espaço, outras não). A regra veio do binário do CLI (`replace(/[^a-zA-Z0-9]/g,"-")`, corte em 200 + hash), e só então foi conferida contra as 64 pastas reais.
+- **Relatório de agente não é evidência.** A auditoria do bundle veio de um subagente, com 7 vereditos. Dois deles estavam contaminados pela própria conversa (a sessão citava os nomes dos campos, e o grep por substring contou essas menções). Refazendo a medição por propriedade real de JSON, o quadro se manteve — mas só depois de medir.
+- **O harness passava e o produto não.** Todos os 165 asserts verdes, build instalado, e a sessão da janela continuava sem nome. O caso que quebrava era um que nenhum teste tinha: **uma linha de 512 KB** (imagem colada no chat) ocupando a janela de leitura inteira. Só apareceu porque a prova foi feita contra o disco real, com o transcript mais hostil disponível — o desta própria sessão.
+
+### Decisões
+
+- **Desistir explicitamente quando há ambiguidade.** O fallback pelo registro de sessões vivas resolve a aba sem título, mas com duas sessões no mesmo `cwd` ele **não chuta**: trocar a nota de lugar é pior que não resolver. Mesma lógica no label genérico `"Claude Code"`, que deixou de virar chave de identidade.
+- **Rejeitar nomes reservados em vez de exigir formato de id.** O filtro por UUID era mais rigoroso e descartaria sessão de verdade se o formato do `sessionId` mudasse — além de ter quebrado os ids curtos do harness, que foi como o problema apareceu.
+- **Risco de produto fica com o Lucas.** O container onde o painel mora (`claude-sessions-sidebar`) é condicionado a uma flag da extensão oficial. Se ela for desligada, o Lapso perde a casa. Mudar isso mexeria em onde o painel aparece — registrado no CHANGELOG, não decidido sozinho.
+
+### Aprendizado
+
+- **"Já não foi resolvido?" merece medição, não memória.** Três defeitos diferentes produziam a mesma frase na tela.
+- **Teste no ambiente real com o caso mais hostil** — não com o mais conveniente. O harness provou a lógica; o disco real provou o produto, e só ele pegou a linha de 512 KB.
+- **Cada suíte nova rodada contra o build anterior**: 13 e 11 falhas. Teste que passa nos dois lados não estava provando nada.
+
 ## 2026-08-07 — "um botão que injeta um prompt na sessão aberta — ou isso é inviável?" (v0.4.0)
 
 ### Contexto
