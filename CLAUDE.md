@@ -61,6 +61,17 @@ Segue as regras globais privadas do mantenedor (carregadas automaticamente na se
 
 **Publicar no Marketplace é passo separado e manual**: o PAT guardado pelo `vsce` está inválido (`TF400813`); o upload sai pelo portal manage no browser logado. O filé **não** publica — enquanto isso o Marketplace serve a versão anterior e o Settings Sync pode reverter a instalação local.
 
+**Receita comprovada do upload (2026-09-12, publicando a 0.4.4)** — funciona com o MCP `playwright-logado`, sem PAT:
+1. `https://marketplace.visualstudio.com/manage/publishers/lucasftas` — o SSO do perfil logado passa sozinho (a primeira navegação cai numa tela de sign-in e a segunda já entra).
+2. Clicar numa célula da linha **Lapso** pra selecioná-la (o botão `More Actions...` só existe na linha selecionada) → `More Actions...` → **Update** → `click` no seletor de arquivo → enviar o `.vsix`.
+3. ⚠️ **O caminho do arquivo precisa começar com `d:` minúsculo** — o MCP compara com a raiz permitida e recusa `D:` maiúsculo.
+4. ⚠️ **O reCAPTCHA invisível cospe erro no console e NÃO impede o envio** (`requestStorageAccess: Permission denied`, CSP barrando `recaptcha/api2/clr`). O que engana de verdade é a listagem seguir mostrando a versão antiga: o estado real aparece como **`Verifying <versão>`** na coluna Version, e a coluna Updated vira "just now".
+5. ⛔ **A prova de publicado não é a tela** — é a galeria servir a versão nova:
+   ```bash
+   curl -s -X POST "https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery" -H "Content-Type: application/json" -H "Accept: application/json;api-version=7.1-preview.1" -d '{"filters":[{"criteria":[{"filterType":7,"value":"lucasftas.lapso"}]}],"flags":914}'
+   ```
+6. Fechar a janela do Playwright (`browser_close`) ao terminar.
+
 ## ⛔ Regras operacionais duráveis (auditoria 2026-08-12)
 
 > Extraídas do vault (`d:\GitHub\.obisidian-master-lucas\projetos\<repo>.md`), onde viviam como
